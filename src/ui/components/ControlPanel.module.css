@@ -1,0 +1,148 @@
+.panel {
+  width: var(--panel-width);
+  height: 100%;
+  background: var(--bg-panel);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.collapsed {
+  width: 32px;
+  height: 100%;
+  background: var(--bg-panel);
+  display: flex;
+  align-items: flex-start;
+  padding-top: 4px;
+}
+
+.toggleBtn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  padding: 0;
+  margin: 4px;
+}
+
+.toggleBtn:hover {
+  color: var(--accent);
+  background: none;
+}
+
+.section {
+  border-bottom: 1px solid var(--border);
+}
+
+.sectionHeader {
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  user-select: none;
+}
+
+.sectionHeader:hover {
+  color: var(--text-primary);
+}
+
+.sectionBody {
+  padding: 4px 12px 12px;
+}
+
+.chevron {
+  font-size: 10px;
+  transition: transform 0.15s;
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  gap: 8px;
+}
+
+.label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  min-width: 40px;
+}
+
+.slider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  outline: none;
+  border: none;
+  padding: 0;
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: none;
+}
+
+.value {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-primary);
+  min-width: 36px;
+  text-align: right;
+}
+
+.selectRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.select {
+  flex: 1;
+  font-size: 12px;
+  padding: 4px 6px;
+}
+
+.recordBtn {
+  width: 100%;
+  padding: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: var(--radius);
+}
+
+.recordBtn[data-recording='true'] {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}

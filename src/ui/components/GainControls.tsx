@@ -1,0 +1,28 @@
+import styles from './ControlPanel.module.css';
+
+interface GainControlsProps {
+  gains: Record<string, number>;
+  onGainChange: (stage: string, value: number) => void;
+}
+
+export default function GainControls({ gains, onGainChange }: GainControlsProps) {
+  return (
+    <>
+      <div className={styles.row}>
+        <span className={styles.label}>RF Amp</span>
+        <input type="checkbox" checked={(gains['amp'] ?? 0) > 0} onChange={e => onGainChange('amp', e.target.checked ? 14 : 0)} />
+        <span className={styles.value}>{(gains['amp'] ?? 0) > 0 ? '14 dB' : 'Off'}</span>
+      </div>
+      <div className={styles.row}>
+        <span className={styles.label}>IF</span>
+        <input type="range" className={styles.slider} min={0} max={40} step={8} value={gains['lna'] ?? 16} onChange={e => onGainChange('lna', Number(e.target.value))} />
+        <span className={styles.value}>{gains['lna'] ?? 16} dB</span>
+      </div>
+      <div className={styles.row}>
+        <span className={styles.label}>BB</span>
+        <input type="range" className={styles.slider} min={0} max={62} step={2} value={gains['vga'] ?? 20} onChange={e => onGainChange('vga', Number(e.target.value))} />
+        <span className={styles.value}>{gains['vga'] ?? 20} dB</span>
+      </div>
+    </>
+  );
+}

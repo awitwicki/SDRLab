@@ -1,0 +1,12 @@
+.container { padding: 8px 16px; overflow-y: auto; max-height: 250px; background: var(--bg-secondary); }
+.header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.title { font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--text-secondary); }
+.actions { display: flex; gap: 6px; }
+.actionBtn { font-size: 11px; padding: 2px 8px; }
+.bitstream { font-family: var(--font-mono); font-size: 13px; line-height: 1.6; word-break: break-all; margin-bottom: 8px; }
+.bitOne { color: var(--success); }
+.bitZero { color: var(--text-muted); }
+.hexView { font-family: var(--font-mono); font-size: 12px; color: var(--accent); margin-bottom: 8px; word-break: break-all; }
+.timing { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); display: flex; gap: 16px; flex-wrap: wrap; }
+.timingItem { display: flex; gap: 4px; }
+.empty { font-size: 12px; color: var(--text-muted); padding: 16px 0; text-align: center; }

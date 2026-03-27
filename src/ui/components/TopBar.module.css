@@ -1,0 +1,107 @@
+.topBar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  height: 42px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+
+.connectBtn {
+  padding: 4px 14px;
+  font-weight: 600;
+  font-size: 13px;
+  border-radius: var(--radius);
+  min-width: 90px;
+}
+
+.connectBtn[data-connected='true'] {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+
+.connectBtn[data-connected='false'] {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.startBtn {
+  padding: 4px 14px;
+  font-weight: 600;
+  font-size: 13px;
+  min-width: 70px;
+}
+
+.startBtn[data-running='true'] {
+  background: var(--warning);
+  border-color: var(--warning);
+  color: #000;
+}
+
+.freqDisplay {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent);
+  cursor: default;
+  letter-spacing: 0.5px;
+  padding: 2px 8px;
+  border-radius: var(--radius);
+  min-width: 180px;
+  text-align: center;
+}
+
+.freqDisplay:hover {
+  background: var(--bg-input);
+}
+
+.freqInput {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent);
+  width: 180px;
+  text-align: center;
+  background: var(--bg-input);
+  border: 1px solid var(--accent);
+}
+
+.modeSelect {
+  font-weight: 600;
+  font-size: 13px;
+  padding: 4px 8px;
+  background: var(--bg-input);
+  min-width: 60px;
+}
+
+.status {
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.statusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.statusDot[data-connected='true'] {
+  background: var(--success);
+  box-shadow: 0 0 4px var(--success);
+}
+
+.statusDot[data-connected='false'] {
+  background: var(--text-muted);
+}
+
+.spacer {
+  flex: 1;
+}
