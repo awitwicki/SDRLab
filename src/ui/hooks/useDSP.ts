@@ -1,9 +1,13 @@
 import { useRef, useCallback, useEffect, useState } from 'react';
 import type { DemodMode, WorkerInMessage, WorkerOutMessage, BitEvent } from '../../devices/types';
 
+interface UseDSPOptions {
+  /** Called directly from worker thread — bypasses React state for zero-latency audio. */
+  onAudio?: (samples: Float32Array, squelchOpen: boolean) => void;
+}
+
 interface UseDSPReturn {
   fftData: Float32Array | null;
-  audioData: { samples: Float32Array; squelchOpen: boolean } | null;
   bitEvents: BitEvent[];
   sendIQ: (data: Float32Array) => void;
   updateConfig: (config: {
@@ -17,11 +21,16 @@ interface UseDSPReturn {
   }) => void;
 }
 
-export function useDSP(): UseDSPReturn {
+export function useDSP(options: UseDSPOptions = {}): UseDSPReturn {
   const workerRef = useRef<Worker | null>(null);
   const [fftData, setFftData] = useState<Float32Array | null>(null);
-  const [audioData, setAudioData] = useState<{ samples: Float32Array; squelchOpen: boolean } | null>(null);
   const [bitEvents, setBitEvents] = useState<BitEvent[]>([]);
+
+  // Refs for hot-path data that shouldn't trigger re-renders
+  const fftRef = useRef<Float32Array | null>(null);
+  const rafRef = useRef(0);
+  const onAudioRef = useRef(options.onAudio);
+  onAudioRef.current = options.onAudio;
 
   useEffect(() => {
     const worker = new Worker(new URL('../../dsp/worker.ts', import.meta.url), { type: 'module' });
@@ -30,10 +39,18 @@ export function useDSP(): UseDSPReturn {
       const msg = event.data;
       switch (msg.type) {
         case 'fft':
-          setFftData(msg.bins);
+          // Store in ref, throttle React updates to requestAnimationFrame (~60fps)
+          fftRef.current = msg.bins;
+          if (!rafRef.current) {
+            rafRef.current = requestAnimationFrame(() => {
+              setFftData(fftRef.current);
+              rafRef.current = 0;
+            });
+          }
           break;
         case 'audio':
-          setAudioData({ samples: msg.samples, squelchOpen: msg.squelchOpen });
+          // Direct callback — bypasses React state entirely
+          onAudioRef.current?.(msg.samples, msg.squelchOpen);
           break;
         case 'bits':
           setBitEvents(prev => [...prev.slice(-100), ...msg.data]);
@@ -43,6 +60,7 @@ export function useDSP(): UseDSPReturn {
 
     workerRef.current = worker;
     return () => {
+      cancelAnimationFrame(rafRef.current);
       worker.terminate();
       workerRef.current = null;
     };
@@ -66,5 +84,5 @@ export function useDSP(): UseDSPReturn {
     workerRef.current?.postMessage(msg);
   }, []);
 
-  return { fftData, audioData, bitEvents, sendIQ, updateConfig };
+  return { fftData, bitEvents, sendIQ, updateConfig };
 }

@@ -105,3 +105,10 @@
 .spacer {
   flex: 1;
 }
+
+.srSelect {
+  font-size: 12px;
+  padding: 4px 6px;
+  background: var(--bg-input);
+  min-width: 70px;
+}

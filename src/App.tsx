@@ -12,6 +12,7 @@ import AudioControls from './ui/components/AudioControls';
 import DisplaySettings from './ui/components/DisplaySettings';
 import DigitalDecoder from './ui/components/DigitalDecoder';
 import StatusBar from './ui/components/StatusBar';
+import FrequencyAxis from './ui/components/FrequencyAxis';
 import styles from './App.module.css';
 
 const DEFAULT_FREQUENCY = 100_000_000;
@@ -19,11 +20,16 @@ const DEFAULT_SAMPLE_RATE = 2_000_000;
 
 export default function App() {
   const device = useDevice();
-  const dsp = useDSP();
   const audio = useAudio();
+  const audioRef = useRef(audio);
+  audioRef.current = audio;
+  const dsp = useDSP({
+    onAudio: (samples, squelchOpen) => audioRef.current.pushAudio(samples, squelchOpen),
+  });
 
   const [frequency, setFrequency] = useState(DEFAULT_FREQUENCY);
-  const [sampleRate] = useState(DEFAULT_SAMPLE_RATE);
+  const [sampleRate, setSampleRate] = useState(DEFAULT_SAMPLE_RATE);
+  const [tuningOffset, setTuningOffset] = useState(0);
   const [demodMode, setDemodMode] = useState<DemodMode>('WFM');
   const [gains, setGains] = useState<Record<string, number>>({ amp: 0, lna: 16, vga: 20 });
   const [squelchLevel, setSquelchLevel] = useState(-60);
@@ -36,6 +42,7 @@ export default function App() {
 
   const usbBytesRef = useRef(0);
   const usbTimerRef = useRef<ReturnType<typeof setInterval>>();
+  const freqDebounceRef = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
     usbTimerRef.current = setInterval(() => {
@@ -46,22 +53,16 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (dsp.audioData) {
-      audio.pushAudio(dsp.audioData.samples, dsp.audioData.squelchOpen);
-    }
-  }, [dsp.audioData, audio]);
-
-  useEffect(() => {
     dsp.updateConfig({
       frequency,
       sampleRate,
       demodMode,
       fftSize,
       squelchLevel,
-      frequencyOffset: 0,
+      frequencyOffset: tuningOffset,
       ookEnabled,
     });
-  }, [frequency, sampleRate, demodMode, fftSize, squelchLevel, ookEnabled, dsp]);
+  }, [frequency, sampleRate, demodMode, fftSize, squelchLevel, tuningOffset, ookEnabled, dsp]);
 
   const handleConnect = useCallback(async () => {
     try {
@@ -80,20 +81,15 @@ export default function App() {
 
   const handleStart = useCallback(async () => {
     try {
-      console.log('[Start] setFrequency', frequency);
       await device.setFrequency(frequency);
-      console.log('[Start] setSampleRate', sampleRate);
       await device.setSampleRate(sampleRate);
       for (const [stage, value] of Object.entries(gains)) {
-        console.log('[Start] setGain', stage, value);
         await device.setGain(stage, value);
       }
-      console.log('[Start] startRx');
       await device.startRx((iq: Float32Array) => {
         usbBytesRef.current += iq.byteLength;
         dsp.sendIQ(iq);
       });
-      console.log('[Start] streaming');
     } catch (err) {
       console.error('[Start] Failed:', err);
     }
@@ -103,10 +99,38 @@ export default function App() {
     await device.stop();
   }, [device]);
 
-  const handleFrequencyChange = useCallback(async (hz: number) => {
+  // Debounced USB frequency sync — prevents flooding USB during drag
+  const syncFreqToDevice = useCallback((hz: number) => {
+    clearTimeout(freqDebounceRef.current);
+    freqDebounceRef.current = setTimeout(() => {
+      if (device.running) {
+        device.setFrequency(hz);
+      }
+    }, 150);
+  }, [device]);
+
+  const handleFrequencyChange = useCallback((hz: number) => {
     setFrequency(hz);
+    setTuningOffset(0);
+    syncFreqToDevice(hz);
+  }, [syncFreqToDevice]);
+
+  const handleTuningOffsetChange = useCallback((offset: number) => {
+    const clamped = Math.max(-sampleRate / 2, Math.min(sampleRate / 2, offset));
+    setTuningOffset(clamped);
+  }, [sampleRate]);
+
+  const handleCenterFrequencyPan = useCallback((hz: number) => {
+    const rounded = Math.round(hz / 1000) * 1000;
+    setFrequency(rounded);
+    syncFreqToDevice(rounded);
+  }, [syncFreqToDevice]);
+
+  const handleSampleRateChange = useCallback(async (hz: number) => {
+    setSampleRate(hz);
+    setTuningOffset(prev => Math.max(-hz / 2, Math.min(hz / 2, prev)));
     if (device.running) {
-      await device.setFrequency(hz);
+      await device.setSampleRate(hz);
     }
   }, [device]);
 
@@ -125,10 +149,6 @@ export default function App() {
     }
   }, [audio]);
 
-  const handleTune = useCallback((hz: number) => {
-    handleFrequencyChange(hz);
-  }, [handleFrequencyChange]);
-
   return (
     <div className={styles.app}>
       <div className={styles.topBar}>
@@ -136,6 +156,8 @@ export default function App() {
           connected={device.connected}
           running={device.running}
           frequency={frequency}
+          tuningOffset={tuningOffset}
+          sampleRate={sampleRate}
           demodMode={demodMode}
           onConnect={handleConnect}
           onDisconnect={handleDisconnect}
@@ -143,6 +165,7 @@ export default function App() {
           onStop={handleStop}
           onFrequencyChange={handleFrequencyChange}
           onDemodModeChange={setDemodMode}
+          onSampleRateChange={handleSampleRateChange}
         />
       </div>
 
@@ -152,7 +175,16 @@ export default function App() {
             fftData={dsp.fftData}
             frequency={frequency}
             sampleRate={sampleRate}
-            onTune={handleTune}
+            tuningOffset={tuningOffset}
+            demodMode={demodMode}
+            onTuningOffsetChange={handleTuningOffsetChange}
+            onCenterFrequencyPan={handleCenterFrequencyPan}
+          />
+        </div>
+        <div className={styles.freqAxis}>
+          <FrequencyAxis
+            centerFrequency={frequency}
+            sampleRate={sampleRate}
           />
         </div>
         <div className={styles.waterfall}>
@@ -161,7 +193,10 @@ export default function App() {
             frequency={frequency}
             sampleRate={sampleRate}
             colorMap={colorMap}
-            onTune={handleTune}
+            tuningOffset={tuningOffset}
+            demodMode={demodMode}
+            onTuningOffsetChange={handleTuningOffsetChange}
+            onCenterFrequencyPan={handleCenterFrequencyPan}
           />
         </div>
         {ookEnabled && (
@@ -218,6 +253,8 @@ export default function App() {
       <div className={styles.statusBar}>
         <StatusBar
           sampleRate={sampleRate}
+          frequency={frequency}
+          tuningOffset={tuningOffset}
           bufferLevel={audio.bufferLevel}
           bufferSize={audio.bufferSize}
           usbRate={usbRate}

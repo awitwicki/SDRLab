@@ -187,6 +187,14 @@ export class HackRF implements SDRDevice {
     this.streaming = false;
     this.rxCallback = null;
     if (this.device) {
+      // Release interface to abort any pending transferIn, then reclaim
+      try {
+        await this.device.releaseInterface(0);
+        await this.device.claimInterface(0);
+        await this.device.selectAlternateInterface(0, 0);
+      } catch {
+        // Interface may already be released
+      }
       try {
         await this.device.controlTransferOut(
           { requestType: 'vendor', recipient: 'device', request: VendorRequest.SET_TRANSCEIVER_MODE, value: TransceiverMode.OFF, index: 0 },

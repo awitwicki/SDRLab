@@ -1,12 +1,27 @@
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useState } from 'react';
+import type { DemodMode } from '../../devices/types';
 import styles from './SpectrumView.module.css';
 
 interface SpectrumViewProps {
   fftData: Float32Array | null;
   frequency: number;
   sampleRate: number;
-  onTune: (hz: number) => void;
+  tuningOffset: number;
+  demodMode: DemodMode;
+  onTuningOffsetChange: (offset: number) => void;
+  onCenterFrequencyPan: (hz: number) => void;
 }
+
+function getDemodBandwidth(mode: DemodMode): number {
+  switch (mode) {
+    case 'WFM': return 200_000;
+    case 'NFM': return 12_500;
+    case 'AM':  return 10_000;
+  }
+}
+
+const MIN_DB = -80;
+const MAX_DB = 0;
 
 const VERT_SHADER = `
   attribute float a_bin;
@@ -14,12 +29,18 @@ const VERT_SHADER = `
   uniform float u_numBins;
   uniform float u_minDb;
   uniform float u_maxDb;
-
   void main() {
     float x = (a_bin / u_numBins) * 2.0 - 1.0;
     float y = ((a_power - u_minDb) / (u_maxDb - u_minDb)) * 2.0 - 1.0;
     y = clamp(y, -1.0, 1.0);
     gl_Position = vec4(x, y, 0.0, 1.0);
+  }
+`;
+
+const OVERLAY_VERT = `
+  attribute vec2 a_pos;
+  void main() {
+    gl_Position = vec4(a_pos, 0.0, 1.0);
   }
 `;
 
@@ -35,81 +56,69 @@ function createShader(gl: WebGLRenderingContext, type: number, source: string): 
   const shader = gl.createShader(type)!;
   gl.shaderSource(shader, source);
   gl.compileShader(shader);
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    const info = gl.getShaderInfoLog(shader);
-    gl.deleteShader(shader);
-    throw new Error('Shader compile error: ' + info);
-  }
   return shader;
 }
 
-function createProgram(gl: WebGLRenderingContext, vert: WebGLShader, frag: WebGLShader): WebGLProgram {
+function createProgram(gl: WebGLRenderingContext, vertSrc: string, fragSrc: string): WebGLProgram {
+  const vert = createShader(gl, gl.VERTEX_SHADER, vertSrc);
+  const frag = createShader(gl, gl.FRAGMENT_SHADER, fragSrc);
   const program = gl.createProgram()!;
   gl.attachShader(program, vert);
   gl.attachShader(program, frag);
   gl.linkProgram(program);
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    const info = gl.getProgramInfoLog(program);
-    gl.deleteProgram(program);
-    throw new Error('Program link error: ' + info);
-  }
   return program;
 }
 
-export default function SpectrumView({ fftData, frequency, sampleRate, onTune }: SpectrumViewProps) {
+export default function SpectrumView({
+  fftData, frequency, sampleRate, tuningOffset, demodMode,
+  onTuningOffsetChange, onCenterFrequencyPan,
+}: SpectrumViewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const glRef = useRef<{
     gl: WebGLRenderingContext;
-    program: WebGLProgram;
+    specProgram: WebGLProgram;
+    overlayProgram: WebGLProgram;
     binBuffer: WebGLBuffer;
     powerBuffer: WebGLBuffer;
-    locs: {
-      a_bin: number;
-      a_power: number;
-      u_numBins: WebGLUniformLocation;
-      u_minDb: WebGLUniformLocation;
-      u_maxDb: WebGLUniformLocation;
-      u_color: WebGLUniformLocation;
-    };
+    overlayBuffer: WebGLBuffer;
   } | null>(null);
 
+  const [mouseFreq, setMouseFreq] = useState<{ freq: number; power: number } | null>(null);
+  const dragRef = useRef<{ type: 'cursor' | 'pan'; startX: number; startFreq: number } | null>(null);
+
+  // Init WebGL
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const gl = canvas.getContext('webgl', { antialias: true, alpha: false });
     if (!gl) return;
 
-    const vert = createShader(gl, gl.VERTEX_SHADER, VERT_SHADER);
-    const frag = createShader(gl, gl.FRAGMENT_SHADER, FRAG_SHADER);
-    const program = createProgram(gl, vert, frag);
-
     glRef.current = {
-      gl, program,
+      gl,
+      specProgram: createProgram(gl, VERT_SHADER, FRAG_SHADER),
+      overlayProgram: createProgram(gl, OVERLAY_VERT, FRAG_SHADER),
       binBuffer: gl.createBuffer()!,
       powerBuffer: gl.createBuffer()!,
-      locs: {
-        a_bin: gl.getAttribLocation(program, 'a_bin'),
-        a_power: gl.getAttribLocation(program, 'a_power'),
-        u_numBins: gl.getUniformLocation(program, 'u_numBins')!,
-        u_minDb: gl.getUniformLocation(program, 'u_minDb')!,
-        u_maxDb: gl.getUniformLocation(program, 'u_maxDb')!,
-        u_color: gl.getUniformLocation(program, 'u_color')!,
-      },
+      overlayBuffer: gl.createBuffer()!,
     };
 
     return () => {
-      gl.deleteBuffer(glRef.current!.binBuffer);
-      gl.deleteBuffer(glRef.current!.powerBuffer);
-      gl.deleteProgram(program);
-      gl.deleteShader(vert);
-      gl.deleteShader(frag);
-      glRef.current = null;
+      if (glRef.current) {
+        gl.deleteProgram(glRef.current.specProgram);
+        gl.deleteProgram(glRef.current.overlayProgram);
+        gl.deleteBuffer(glRef.current.binBuffer);
+        gl.deleteBuffer(glRef.current.powerBuffer);
+        gl.deleteBuffer(glRef.current.overlayBuffer);
+        glRef.current = null;
+      }
     };
   }, []);
 
+  // Render
   useEffect(() => {
     if (!fftData || !glRef.current) return;
-    const { gl, program, binBuffer, powerBuffer, locs } = glRef.current;
+    const { gl, specProgram, overlayProgram, binBuffer, powerBuffer, overlayBuffer } = glRef.current;
     const canvas = canvasRef.current!;
 
     const rect = canvas.getBoundingClientRect();
@@ -119,42 +128,173 @@ export default function SpectrumView({ fftData, frequency, sampleRate, onTune }:
 
     gl.clearColor(0.1, 0.1, 0.18, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
+    // --- Grid lines via overlay program ---
+    gl.useProgram(overlayProgram);
+    const overlayPosLoc = gl.getAttribLocation(overlayProgram, 'a_pos');
+    const overlayColorLoc = gl.getUniformLocation(overlayProgram, 'u_color')!;
+
+    const gridVerts: number[] = [];
+    // Horizontal dB lines
+    for (let db = -60; db >= MIN_DB; db -= 20) {
+      const y = ((db - MIN_DB) / (MAX_DB - MIN_DB)) * 2 - 1;
+      gridVerts.push(-1, y, 1, y);
+    }
+    // Vertical lines every 1/8 of width
+    for (let i = 1; i < 8; i++) {
+      const x = (i / 8) * 2 - 1;
+      gridVerts.push(x, -1, x, 1);
+    }
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, overlayBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(gridVerts), gl.DYNAMIC_DRAW);
+    gl.enableVertexAttribArray(overlayPosLoc);
+    gl.vertexAttribPointer(overlayPosLoc, 2, gl.FLOAT, false, 0, 0);
+    gl.uniform4f(overlayColorLoc, 0.16, 0.16, 0.29, 1.0);
+    gl.drawArrays(gl.LINES, 0, gridVerts.length / 2);
+
+    // --- Spectrum line ---
+    gl.useProgram(specProgram);
     const numBins = fftData.length;
     const bins = new Float32Array(numBins);
     for (let i = 0; i < numBins; i++) bins[i] = i;
 
-    gl.useProgram(program);
+    const specBinLoc = gl.getAttribLocation(specProgram, 'a_bin');
+    const specPowerLoc = gl.getAttribLocation(specProgram, 'a_power');
 
     gl.bindBuffer(gl.ARRAY_BUFFER, binBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, bins, gl.DYNAMIC_DRAW);
-    gl.enableVertexAttribArray(locs.a_bin);
-    gl.vertexAttribPointer(locs.a_bin, 1, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(specBinLoc);
+    gl.vertexAttribPointer(specBinLoc, 1, gl.FLOAT, false, 0, 0);
 
     gl.bindBuffer(gl.ARRAY_BUFFER, powerBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, fftData, gl.DYNAMIC_DRAW);
-    gl.enableVertexAttribArray(locs.a_power);
-    gl.vertexAttribPointer(locs.a_power, 1, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(specPowerLoc);
+    gl.vertexAttribPointer(specPowerLoc, 1, gl.FLOAT, false, 0, 0);
 
-    gl.uniform1f(locs.u_numBins, numBins);
-    gl.uniform1f(locs.u_minDb, -80);
-    gl.uniform1f(locs.u_maxDb, 0);
-    gl.uniform4f(locs.u_color, 0.0, 0.83, 1.0, 1.0);
-
+    gl.uniform1f(gl.getUniformLocation(specProgram, 'u_numBins')!, numBins);
+    gl.uniform1f(gl.getUniformLocation(specProgram, 'u_minDb')!, MIN_DB);
+    gl.uniform1f(gl.getUniformLocation(specProgram, 'u_maxDb')!, MAX_DB);
+    gl.uniform4f(gl.getUniformLocation(specProgram, 'u_color')!, 0.0, 0.83, 1.0, 1.0);
     gl.drawArrays(gl.LINE_STRIP, 0, numBins);
+
+    gl.disable(gl.BLEND);
   }, [fftData]);
 
-  const handleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    const canvas = canvasRef.current!;
-    const rect = canvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / rect.width;
-    const freqOffset = (x - 0.5) * sampleRate;
-    onTune(frequency + freqOffset);
-  }, [frequency, sampleRate, onTune]);
+  // Offset to percentage
+  const cursorPct = 50 + (tuningOffset / sampleRate) * 100;
+  const bw = getDemodBandwidth(demodMode);
+  const bwPct = (bw / sampleRate) * 100;
+
+  const CURSOR_HIT = 10; // px hit area for cursor drag
+
+  const xToOffset = useCallback((clientX: number) => {
+    const rect = containerRef.current!.getBoundingClientRect();
+    const x = (clientX - rect.left) / rect.width;
+    return (x - 0.5) * sampleRate;
+  }, [sampleRate]);
+
+  const isNearCursor = useCallback((clientX: number) => {
+    const rect = containerRef.current!.getBoundingClientRect();
+    const cursorX = rect.left + (cursorPct / 100) * rect.width;
+    return Math.abs(clientX - cursorX) < CURSOR_HIT;
+  }, [cursorPct]);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (isNearCursor(e.clientX)) {
+      dragRef.current = { type: 'cursor', startX: e.clientX, startFreq: tuningOffset };
+    } else {
+      dragRef.current = { type: 'pan', startX: e.clientX, startFreq: frequency };
+    }
+    e.preventDefault();
+  }, [isNearCursor, tuningOffset, frequency]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    // Update readout
+    if (fftData && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width;
+      const freq = frequency + (x - 0.5) * sampleRate;
+      const binIdx = Math.round(x * fftData.length);
+      const power = binIdx >= 0 && binIdx < fftData.length ? fftData[binIdx]! : MIN_DB;
+      setMouseFreq({ freq, power });
+    }
+
+    // Handle drag
+    if (!dragRef.current || !containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const deltaX = e.clientX - dragRef.current.startX;
+    const deltaFreq = (deltaX / rect.width) * sampleRate;
+
+    if (dragRef.current.type === 'cursor') {
+      onTuningOffsetChange(dragRef.current.startFreq + deltaFreq);
+    } else {
+      const dx = Math.abs(e.clientX - dragRef.current.startX);
+      if (dx > 3) {
+        onCenterFrequencyPan(dragRef.current.startFreq - deltaFreq);
+      }
+    }
+  }, [fftData, frequency, sampleRate, onTuningOffsetChange, onCenterFrequencyPan]);
+
+  const handleMouseUp = useCallback((e: React.MouseEvent) => {
+    if (dragRef.current) {
+      const dx = Math.abs(e.clientX - dragRef.current.startX);
+      if (dx <= 3 && dragRef.current.type !== 'cursor') {
+        // Click-to-tune
+        onTuningOffsetChange(xToOffset(e.clientX));
+      }
+      dragRef.current = null;
+    }
+  }, [xToOffset, onTuningOffsetChange]);
+
+  const handleMouseLeave = useCallback(() => {
+    setMouseFreq(null);
+    dragRef.current = null;
+  }, []);
+
+  const getCursor = useCallback((e: React.MouseEvent): string => {
+    if (dragRef.current?.type === 'pan') return 'grabbing';
+    if (dragRef.current?.type === 'cursor') return 'col-resize';
+    if (isNearCursor(e.clientX)) return 'col-resize';
+    return 'crosshair';
+  }, [isNearCursor]);
 
   return (
-    <div className={styles.container}>
-      <canvas ref={canvasRef} className={styles.canvas} onClick={handleClick} />
+    <div
+      ref={containerRef}
+      className={styles.container}
+      onMouseDown={handleMouseDown}
+      onMouseMove={e => { handleMouseMove(e); (e.currentTarget as HTMLDivElement).style.cursor = getCursor(e); }}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseLeave}
+    >
+      <canvas ref={canvasRef} className={styles.canvas} />
+
+      {/* dB labels */}
+      <div className={styles.dbLabels}>
+        <div className={styles.dbLabel} style={{ top: '25%' }}>-20</div>
+        <div className={styles.dbLabel} style={{ top: '50%' }}>-40</div>
+        <div className={styles.dbLabel} style={{ top: '75%' }}>-60</div>
+      </div>
+
+      {/* Demod bandwidth highlight */}
+      <div
+        className={styles.bandwidth}
+        style={{ left: `${cursorPct - bwPct / 2}%`, width: `${bwPct}%` }}
+      />
+
+      {/* Tuning cursor */}
+      <div className={styles.cursor} style={{ left: `${cursorPct}%` }} />
+      <div className={styles.cursorTriangle} style={{ left: `${cursorPct}%` }} />
+
+      {/* Mouse readout */}
+      {mouseFreq && (
+        <div className={styles.readout}>
+          {(mouseFreq.freq / 1e6).toFixed(3)} MHz &nbsp; {mouseFreq.power.toFixed(1)} dB
+        </div>
+      )}
     </div>
   );
 }

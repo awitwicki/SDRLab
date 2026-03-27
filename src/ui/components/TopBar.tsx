@@ -6,6 +6,8 @@ interface TopBarProps {
   connected: boolean;
   running: boolean;
   frequency: number;
+  tuningOffset: number;
+  sampleRate: number;
   demodMode: DemodMode;
   onConnect: () => void;
   onDisconnect: () => void;
@@ -13,6 +15,7 @@ interface TopBarProps {
   onStop: () => void;
   onFrequencyChange: (hz: number) => void;
   onDemodModeChange: (mode: DemodMode) => void;
+  onSampleRateChange: (hz: number) => void;
 }
 
 function formatFrequency(hz: number): string {
@@ -39,21 +42,24 @@ function parseFrequency(input: string): number | null {
 }
 
 const FREQ_STEP = 100_000;
+const SAMPLE_RATES = [2_000_000, 4_000_000, 8_000_000, 10_000_000, 16_000_000, 20_000_000];
 
 export default function TopBar({
-  connected, running, frequency, demodMode,
+  connected, running, frequency, tuningOffset, sampleRate, demodMode,
   onConnect, onDisconnect, onStart, onStop,
-  onFrequencyChange, onDemodModeChange,
+  onFrequencyChange, onDemodModeChange, onSampleRateChange,
 }: TopBarProps) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const tunedFreq = frequency + tuningOffset;
+
   const startEditing = useCallback(() => {
-    setEditValue((frequency / 1e6).toFixed(3));
+    setEditValue((tunedFreq / 1e6).toFixed(3));
     setEditing(true);
     setTimeout(() => inputRef.current?.select(), 0);
-  }, [frequency]);
+  }, [tunedFreq]);
 
   const commitEdit = useCallback(() => {
     setEditing(false);
@@ -113,7 +119,7 @@ export default function TopBar({
             if (e.key === 'ArrowDown') onFrequencyChange(Math.max(0, frequency - FREQ_STEP));
           }}
         >
-          {formatFrequency(frequency)}
+          {formatFrequency(tunedFreq)}
         </div>
       )}
 
@@ -125,6 +131,16 @@ export default function TopBar({
         <option value="WFM">WFM</option>
         <option value="NFM">NFM</option>
         <option value="AM">AM</option>
+      </select>
+
+      <select
+        className={styles.srSelect}
+        value={sampleRate}
+        onChange={e => onSampleRateChange(Number(e.target.value))}
+      >
+        {SAMPLE_RATES.map(sr => (
+          <option key={sr} value={sr}>{sr / 1e6} MHz</option>
+        ))}
       </select>
 
       <div className={styles.spacer} />

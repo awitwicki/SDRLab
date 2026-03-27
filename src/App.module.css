@@ -22,6 +22,10 @@
 
 .spectrum {
   flex: 0 0 200px;
+}
+
+.freqAxis {
+  flex: 0 0 auto;
   border-bottom: 1px solid var(--border);
 }
 
