@@ -5,12 +5,17 @@ interface DisplaySettingsProps {
   fftSize: number;
   colorMap: ColorMap;
   waterfallSpeed: number;
+  displayOffset: number;
   onFftSizeChange: (size: number) => void;
   onColorMapChange: (map: ColorMap) => void;
   onWaterfallSpeedChange: (speed: number) => void;
+  onDisplayOffsetChange: (offset: number) => void;
 }
 
-export default function DisplaySettings({ fftSize, colorMap, waterfallSpeed, onFftSizeChange, onColorMapChange, onWaterfallSpeedChange }: DisplaySettingsProps) {
+export default function DisplaySettings({
+  fftSize, colorMap, waterfallSpeed, displayOffset,
+  onFftSizeChange, onColorMapChange, onWaterfallSpeedChange, onDisplayOffsetChange,
+}: DisplaySettingsProps) {
   return (
     <>
       <div className={styles.selectRow}>
@@ -34,6 +39,11 @@ export default function DisplaySettings({ fftSize, colorMap, waterfallSpeed, onF
         <span className={styles.label}>Speed</span>
         <input type="range" className={styles.slider} min={1} max={5} step={1} value={waterfallSpeed} onChange={e => onWaterfallSpeedChange(Number(e.target.value))} />
         <span className={styles.value}>{waterfallSpeed}x</span>
+      </div>
+      <div className={styles.row}>
+        <span className={styles.label}>Bias</span>
+        <input type="range" className={styles.slider} min={-40} max={40} step={1} value={displayOffset} onChange={e => onDisplayOffsetChange(Number(e.target.value))} />
+        <span className={styles.value}>{displayOffset > 0 ? '+' : ''}{displayOffset}</span>
       </div>
     </>
   );

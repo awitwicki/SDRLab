@@ -3,13 +3,18 @@ import styles from './ControlPanel.module.css';
 interface AudioControlsProps {
   volume: number;
   squelchLevel: number;
+  channelBandwidth: number;
   recording: boolean;
   onVolumeChange: (v: number) => void;
   onSquelchChange: (v: number) => void;
+  onBandwidthChange: (hz: number) => void;
   onRecordToggle: () => void;
 }
 
-export default function AudioControls({ volume, squelchLevel, recording, onVolumeChange, onSquelchChange, onRecordToggle }: AudioControlsProps) {
+export default function AudioControls({
+  volume, squelchLevel, channelBandwidth, recording,
+  onVolumeChange, onSquelchChange, onBandwidthChange, onRecordToggle,
+}: AudioControlsProps) {
   return (
     <>
       <div className={styles.row}>
@@ -21,6 +26,11 @@ export default function AudioControls({ volume, squelchLevel, recording, onVolum
         <span className={styles.label}>Squelch</span>
         <input type="range" className={styles.slider} min={-100} max={0} step={1} value={squelchLevel} onChange={e => onSquelchChange(Number(e.target.value))} />
         <span className={styles.value}>{squelchLevel} dB</span>
+      </div>
+      <div className={styles.row}>
+        <span className={styles.label}>BW</span>
+        <input type="range" className={styles.slider} min={5000} max={250000} step={5000} value={channelBandwidth} onChange={e => onBandwidthChange(Number(e.target.value))} />
+        <span className={styles.value}>{(channelBandwidth / 1000).toFixed(0)}k</span>
       </div>
       <button className={styles.recordBtn} data-recording={recording} onClick={onRecordToggle}>
         {recording ? 'Stop Recording' : 'Record'}

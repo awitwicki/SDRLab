@@ -8,6 +8,7 @@ interface SpectrumViewProps {
   sampleRate: number;
   tuningOffset: number;
   demodMode: DemodMode;
+  displayOffset: number;
   onTuningOffsetChange: (offset: number) => void;
   onCenterFrequencyPan: (hz: number) => void;
 }
@@ -70,7 +71,7 @@ function createProgram(gl: WebGLRenderingContext, vertSrc: string, fragSrc: stri
 }
 
 export default function SpectrumView({
-  fftData, frequency, sampleRate, tuningOffset, demodMode,
+  fftData, frequency, sampleRate, tuningOffset, demodMode, displayOffset,
   onTuningOffsetChange, onCenterFrequencyPan,
 }: SpectrumViewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -175,8 +176,8 @@ export default function SpectrumView({
     gl.vertexAttribPointer(specPowerLoc, 1, gl.FLOAT, false, 0, 0);
 
     gl.uniform1f(gl.getUniformLocation(specProgram, 'u_numBins')!, numBins);
-    gl.uniform1f(gl.getUniformLocation(specProgram, 'u_minDb')!, MIN_DB);
-    gl.uniform1f(gl.getUniformLocation(specProgram, 'u_maxDb')!, MAX_DB);
+    gl.uniform1f(gl.getUniformLocation(specProgram, 'u_minDb')!, MIN_DB + displayOffset);
+    gl.uniform1f(gl.getUniformLocation(specProgram, 'u_maxDb')!, MAX_DB + displayOffset);
     gl.uniform4f(gl.getUniformLocation(specProgram, 'u_color')!, 0.0, 0.83, 1.0, 1.0);
     gl.drawArrays(gl.LINE_STRIP, 0, numBins);
 

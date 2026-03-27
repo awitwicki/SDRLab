@@ -34,8 +34,10 @@ export default function App() {
   const [gains, setGains] = useState<Record<string, number>>({ amp: 0, lna: 16, vga: 20 });
   const [squelchLevel, setSquelchLevel] = useState(-60);
   const [fftSize, setFftSize] = useState(1024);
+  const [channelBandwidth, setChannelBandwidth] = useState(200_000);
   const [colorMap, setColorMap] = useState<ColorMap>('thermal');
   const [waterfallSpeed, setWaterfallSpeed] = useState(1);
+  const [displayOffset, setDisplayOffset] = useState(0);
   const [panelOpen, setPanelOpen] = useState(true);
   const [ookEnabled, setOokEnabled] = useState(false);
   const [usbRate, setUsbRate] = useState(0);
@@ -61,8 +63,9 @@ export default function App() {
       squelchLevel,
       frequencyOffset: tuningOffset,
       ookEnabled,
+      channelBandwidth,
     });
-  }, [frequency, sampleRate, demodMode, fftSize, squelchLevel, tuningOffset, ookEnabled, dsp]);
+  }, [frequency, sampleRate, demodMode, fftSize, squelchLevel, tuningOffset, ookEnabled, channelBandwidth, dsp]);
 
   const handleConnect = useCallback(async () => {
     try {
@@ -177,6 +180,7 @@ export default function App() {
             sampleRate={sampleRate}
             tuningOffset={tuningOffset}
             demodMode={demodMode}
+            displayOffset={displayOffset}
             onTuningOffsetChange={handleTuningOffsetChange}
             onCenterFrequencyPan={handleCenterFrequencyPan}
           />
@@ -195,6 +199,8 @@ export default function App() {
             colorMap={colorMap}
             tuningOffset={tuningOffset}
             demodMode={demodMode}
+            displayOffset={displayOffset}
+            waterfallSpeed={waterfallSpeed}
             onTuningOffsetChange={handleTuningOffsetChange}
             onCenterFrequencyPan={handleCenterFrequencyPan}
           />
@@ -219,9 +225,11 @@ export default function App() {
             <AudioControls
               volume={audio.volume}
               squelchLevel={squelchLevel}
+              channelBandwidth={channelBandwidth}
               recording={audio.recording}
               onVolumeChange={audio.setVolume}
               onSquelchChange={setSquelchLevel}
+              onBandwidthChange={setChannelBandwidth}
               onRecordToggle={handleRecordToggle}
             />
           </AccordionSection>
@@ -230,9 +238,11 @@ export default function App() {
               fftSize={fftSize}
               colorMap={colorMap}
               waterfallSpeed={waterfallSpeed}
+              displayOffset={displayOffset}
               onFftSizeChange={setFftSize}
               onColorMapChange={setColorMap}
               onWaterfallSpeedChange={setWaterfallSpeed}
+              onDisplayOffsetChange={setDisplayOffset}
             />
           </AccordionSection>
           <AccordionSection title="Digital" defaultOpen={false}>

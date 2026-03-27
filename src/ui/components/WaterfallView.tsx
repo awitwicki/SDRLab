@@ -9,6 +9,8 @@ interface WaterfallViewProps {
   colorMap: ColorMap;
   tuningOffset: number;
   demodMode: DemodMode;
+  waterfallSpeed: number;
+  displayOffset: number;
   onTuningOffsetChange: (offset: number) => void;
   onCenterFrequencyPan: (hz: number) => void;
 }
@@ -71,7 +73,7 @@ function createShader(gl: WebGLRenderingContext, type: number, source: string): 
 const COLOR_MAP_INDEX: Record<ColorMap, number> = { thermal: 0, grayscale: 1, green: 2 };
 
 export default function WaterfallView({
-  fftData, frequency, sampleRate, colorMap, tuningOffset, demodMode,
+  fftData, frequency, sampleRate, colorMap, tuningOffset, demodMode, waterfallSpeed, displayOffset,
   onTuningOffsetChange, onCenterFrequencyPan,
 }: WaterfallViewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -154,13 +156,18 @@ export default function WaterfallView({
     const row = new Uint8Array(s.fftWidth);
     for (let i = 0; i < s.fftWidth; i++) {
       const val = i < fftData.length ? fftData[i]! : -80;
-      const norm = (val + 80) / 80;
+      const minDb = -80 + displayOffset;
+      const maxDb = 0 + displayOffset;
+      const norm = (val - minDb) / (maxDb - minDb);
       row[i] = Math.max(0, Math.min(255, Math.floor(norm * 255)));
     }
 
+    // Write multiple rows per frame based on speed (1-5)
     gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, s.currentRow, s.fftWidth, 1, gl.LUMINANCE, gl.UNSIGNED_BYTE, row);
-    s.currentRow = (s.currentRow + 1) % WATERFALL_ROWS;
+    for (let r = 0; r < waterfallSpeed; r++) {
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, s.currentRow, s.fftWidth, 1, gl.LUMINANCE, gl.UNSIGNED_BYTE, row);
+      s.currentRow = (s.currentRow + 1) % WATERFALL_ROWS;
+    }
 
     gl.clearColor(0, 0, 0, 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
@@ -168,7 +175,7 @@ export default function WaterfallView({
     gl.uniform1f(s.u_scrollOffset, s.currentRow / WATERFALL_ROWS);
     gl.uniform1i(s.u_colorMap, COLOR_MAP_INDEX[colorMap] ?? 0);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-  }, [fftData, colorMap]);
+  }, [fftData, colorMap, waterfallSpeed]);
 
   useEffect(() => {
     if (!stateRef.current) return;

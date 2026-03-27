@@ -58,7 +58,7 @@ export interface BitEvent {
 // Messages: Main thread -> DSP Worker
 export type WorkerInMessage =
   | { type: 'iq'; data: Float32Array }
-  | { type: 'config'; frequency: number; sampleRate: number; demodMode: DemodMode; fftSize: number; squelchLevel: number; frequencyOffset: number; ookEnabled: boolean };
+  | { type: 'config'; frequency: number; sampleRate: number; demodMode: DemodMode; fftSize: number; squelchLevel: number; frequencyOffset: number; ookEnabled: boolean; channelBandwidth: number };
 
 // Messages: DSP Worker -> Main thread
 export type WorkerOutMessage =

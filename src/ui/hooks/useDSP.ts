@@ -18,6 +18,7 @@ interface UseDSPReturn {
     squelchLevel: number;
     frequencyOffset: number;
     ookEnabled: boolean;
+    channelBandwidth: number;
   }) => void;
 }
 
@@ -79,6 +80,7 @@ export function useDSP(options: UseDSPOptions = {}): UseDSPReturn {
     squelchLevel: number;
     frequencyOffset: number;
     ookEnabled: boolean;
+    channelBandwidth: number;
   }) => {
     const msg: WorkerInMessage = { type: 'config', ...config };
     workerRef.current?.postMessage(msg);

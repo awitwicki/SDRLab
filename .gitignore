@@ -2,3 +2,5 @@
 node_modules/
 dist/
 /docs/superpowers
+dsp-wasm/target/
+dsp-wasm/pkg/
