@@ -18,13 +18,6 @@ interface TopBarProps {
   onSampleRateChange: (hz: number) => void;
 }
 
-function formatFrequency(hz: number): string {
-  if (hz >= 1e9) return (hz / 1e9).toFixed(6) + ' GHz';
-  if (hz >= 1e6) return (hz / 1e6).toFixed(3) + ' MHz';
-  if (hz >= 1e3) return (hz / 1e3).toFixed(3) + ' kHz';
-  return hz.toFixed(0) + ' Hz';
-}
-
 function parseFrequency(input: string): number | null {
   const cleaned = input.trim().toLowerCase();
   const match = cleaned.match(/^([0-9]*\.?[0-9]+)\s*(ghz|mhz|khz|hz)?$/);
@@ -41,14 +34,69 @@ function parseFrequency(input: string): number | null {
   }
 }
 
-const FREQ_STEP = 100_000;
 const SAMPLE_RATES = [2_000_000, 4_000_000, 8_000_000, 10_000_000, 16_000_000, 20_000_000];
+
+/** SDR-style digit-by-digit frequency control.
+ *  Click top half of digit → +1 at that position.
+ *  Click bottom half → -1.
+ *  Right-click → zero that digit and all below.
+ *  Scroll wheel → ±1 at that position. */
+function FrequencyDigits({ frequency, onChange }: Readonly<{ frequency: number; onChange: (hz: number) => void }>) {
+  const hz = Math.round(frequency);
+  const str = Math.max(0, hz).toString().padStart(10, '0');
+  const firstNonZero = str.search(/[^0]/);
+
+  const handleClick = (digitIdx: number, e: React.MouseEvent) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const isTop = e.clientY < rect.top + rect.height / 2;
+    const place = Math.pow(10, 9 - digitIdx);
+    onChange(Math.max(0, hz + (isTop ? place : -place)));
+  };
+
+  const handleContextMenu = (digitIdx: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    const place = Math.pow(10, 9 - digitIdx);
+    onChange(Math.max(0, Math.floor(hz / (place * 10)) * (place * 10)));
+  };
+
+  const handleWheel = (digitIdx: number, e: React.WheelEvent) => {
+    e.preventDefault();
+    const place = Math.pow(10, 9 - digitIdx);
+    onChange(Math.max(0, hz + (e.deltaY < 0 ? place : -place)));
+  };
+
+  const elements: React.ReactNode[] = [];
+  for (let i = 0; i < 10; i++) {
+    if (i === 1 || i === 4 || i === 7) {
+      elements.push(<span key={`s${i}`} className={styles.freqSep}>.</span>);
+    }
+    const isDim = firstNonZero < 0 ? i < 9 : i < firstNonZero;
+    elements.push(
+      <span
+        key={i}
+        className={`${styles.freqDigit} ${isDim ? styles.freqDigitDim : ''}`}
+        onClick={e => handleClick(i, e)}
+        onContextMenu={e => handleContextMenu(i, e)}
+        onWheel={e => handleWheel(i, e)}
+      >
+        {str[i]}
+      </span>
+    );
+  }
+
+  return (
+    <div className={styles.freqDigits}>
+      {elements}
+      <span className={styles.freqUnit}>Hz</span>
+    </div>
+  );
+}
 
 export default function TopBar({
   connected, running, frequency, tuningOffset, sampleRate, demodMode,
   onConnect, onDisconnect, onStart, onStop,
   onFrequencyChange, onDemodModeChange, onSampleRateChange,
-}: TopBarProps) {
+}: Readonly<TopBarProps>) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -73,12 +121,6 @@ export default function TopBar({
     if (e.key === 'Enter') commitEdit();
     if (e.key === 'Escape') setEditing(false);
   }, [commitEdit]);
-
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? -FREQ_STEP : FREQ_STEP;
-    onFrequencyChange(Math.max(0, frequency + delta));
-  }, [frequency, onFrequencyChange]);
 
   return (
     <div className={styles.topBar}>
@@ -109,18 +151,16 @@ export default function TopBar({
           onKeyDown={handleKeyDown}
         />
       ) : (
-        <div
-          className={styles.freqDisplay}
-          onClick={startEditing}
-          onWheel={handleWheel}
-          tabIndex={0}
-          onKeyDown={e => {
-            if (e.key === 'ArrowUp') onFrequencyChange(frequency + FREQ_STEP);
-            if (e.key === 'ArrowDown') onFrequencyChange(Math.max(0, frequency - FREQ_STEP));
-          }}
-        >
-          {formatFrequency(tunedFreq)}
-        </div>
+        <FrequencyDigits
+          frequency={tunedFreq}
+          onChange={onFrequencyChange}
+        />
+      )}
+
+      {!editing && (
+        <button className={styles.freqEditBtn} onClick={startEditing} title="Type frequency">
+          &#9998;
+        </button>
       )}
 
       <select

@@ -8,7 +8,7 @@ interface UseDeviceReturn {
   deviceInfo: DeviceInfo | null;
   connect: () => Promise<void>;
   disconnect: () => Promise<void>;
-  startRx: (callback: (iq: Float32Array) => void) => Promise<void>;
+  startRx: (callback: (raw: Uint8Array) => void) => Promise<void>;
   stop: () => Promise<void>;
   setFrequency: (hz: number) => Promise<void>;
   setSampleRate: (hz: number) => Promise<void>;
@@ -39,7 +39,7 @@ export function useDevice(): UseDeviceReturn {
     setDeviceInfo(null);
   }, []);
 
-  const startRx = useCallback(async (callback: (iq: Float32Array) => void) => {
+  const startRx = useCallback(async (callback: (raw: Uint8Array) => void) => {
     if (!deviceRef.current) return;
     await deviceRef.current.startRx(callback);
     setRunning(true);

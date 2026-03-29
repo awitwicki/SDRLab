@@ -6,18 +6,28 @@ interface DisplaySettingsProps {
   colorMap: ColorMap;
   waterfallSpeed: number;
   displayOffset: number;
+  fftSmoothing: number;
+  waterfallEnabled: boolean;
   onFftSizeChange: (size: number) => void;
   onColorMapChange: (map: ColorMap) => void;
   onWaterfallSpeedChange: (speed: number) => void;
   onDisplayOffsetChange: (offset: number) => void;
+  onFftSmoothingChange: (speed: number) => void;
+  onWaterfallToggle: (enabled: boolean) => void;
 }
 
 export default function DisplaySettings({
-  fftSize, colorMap, waterfallSpeed, displayOffset,
-  onFftSizeChange, onColorMapChange, onWaterfallSpeedChange, onDisplayOffsetChange,
+  fftSize, colorMap, waterfallSpeed, displayOffset, fftSmoothing, waterfallEnabled,
+  onFftSizeChange, onColorMapChange, onWaterfallSpeedChange, onDisplayOffsetChange, onFftSmoothingChange, onWaterfallToggle,
 }: DisplaySettingsProps) {
   return (
     <>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, marginBottom: 6 }}>
+        <label>
+          <input type="checkbox" checked={waterfallEnabled} onChange={e => onWaterfallToggle(e.target.checked)} />
+          {' '}Show Waterfall
+        </label>
+      </div>
       <div className={styles.selectRow}>
         <span className={styles.label}>FFT</span>
         <select className={styles.select} value={fftSize} onChange={e => onFftSizeChange(Number(e.target.value))}>
@@ -41,9 +51,14 @@ export default function DisplaySettings({
         <span className={styles.value}>{waterfallSpeed}x</span>
       </div>
       <div className={styles.row}>
-        <span className={styles.label}>Bias</span>
+        <span className={styles.label}>Ref dB</span>
         <input type="range" className={styles.slider} min={-40} max={40} step={1} value={displayOffset} onChange={e => onDisplayOffsetChange(Number(e.target.value))} />
-        <span className={styles.value}>{displayOffset > 0 ? '+' : ''}{displayOffset}</span>
+        <span className={styles.value}>{displayOffset > 0 ? '+' : ''}{displayOffset} dB</span>
+      </div>
+      <div className={styles.row}>
+        <span className={styles.label}>Smooth</span>
+        <input type="range" className={styles.slider} min={1} max={100} step={1} value={fftSmoothing} onChange={e => onFftSmoothingChange(Number(e.target.value))} />
+        <span className={styles.value}>{fftSmoothing}%</span>
       </div>
     </>
   );

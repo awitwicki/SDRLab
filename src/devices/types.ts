@@ -25,7 +25,7 @@ export interface SDRDevice {
   setFrequency(hz: number): Promise<void>;
   setSampleRate(hz: number): Promise<void>;
   setGain(stage: string, value: number): Promise<void>;
-  startRx(callback: (iq: Float32Array) => void): Promise<void>;
+  startRx(callback: (raw: Uint8Array) => void): Promise<void>;
   startTx(callback: () => Float32Array): Promise<void>;
   stop(): Promise<void>;
   getInfo(): DeviceInfo;
@@ -57,11 +57,12 @@ export interface BitEvent {
 
 // Messages: Main thread -> DSP Worker
 export type WorkerInMessage =
-  | { type: 'iq'; data: Float32Array }
-  | { type: 'config'; frequency: number; sampleRate: number; demodMode: DemodMode; fftSize: number; squelchLevel: number; frequencyOffset: number; ookEnabled: boolean; channelBandwidth: number };
+  | { type: 'iq'; data: Uint8Array }
+  | { type: 'config'; frequency: number; sampleRate: number; demodMode: DemodMode; fftSize: number; squelchLevel: number; frequencyOffset: number; ookEnabled: boolean; channelBandwidth: number; audioEnabled: boolean };
 
 // Messages: DSP Worker -> Main thread
 export type WorkerOutMessage =
   | { type: 'fft'; bins: Float32Array }
   | { type: 'audio'; samples: Float32Array; squelchOpen: boolean }
-  | { type: 'bits'; data: BitEvent[] };
+  | { type: 'bits'; data: BitEvent[] }
+  | { type: 'processed' };

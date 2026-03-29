@@ -9,6 +9,7 @@ interface SpectrumViewProps {
   tuningOffset: number;
   demodMode: DemodMode;
   displayOffset: number;
+  fftSmoothing: number;
   onTuningOffsetChange: (offset: number) => void;
   onCenterFrequencyPan: (hz: number) => void;
 }
@@ -71,7 +72,7 @@ function createProgram(gl: WebGLRenderingContext, vertSrc: string, fragSrc: stri
 }
 
 export default function SpectrumView({
-  fftData, frequency, sampleRate, tuningOffset, demodMode, displayOffset,
+  fftData, frequency, sampleRate, tuningOffset, demodMode, displayOffset, fftSmoothing,
   onTuningOffsetChange, onCenterFrequencyPan,
 }: SpectrumViewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -86,7 +87,10 @@ export default function SpectrumView({
   } | null>(null);
 
   const [mouseFreq, setMouseFreq] = useState<{ freq: number; power: number } | null>(null);
+  const smoothBufRef = useRef<Float32Array | null>(null);
   const dragRef = useRef<{ type: 'cursor' | 'pan'; startX: number; startFreq: number } | null>(null);
+  const fpsLabelRef = useRef<HTMLDivElement>(null);
+  const fpsCountRef = useRef({ count: 0, lastTime: performance.now() });
 
   // Init WebGL
   useEffect(() => {
@@ -119,6 +123,38 @@ export default function SpectrumView({
   // Render
   useEffect(() => {
     if (!fftData || !glRef.current) return;
+
+    // FPS counter (update DOM directly to avoid React re-renders)
+    const fc = fpsCountRef.current;
+    fc.count++;
+    const nowFps = performance.now();
+    const elapsed = nowFps - fc.lastTime;
+    if (elapsed > 1000 && fpsLabelRef.current) {
+      fpsLabelRef.current.textContent = `${Math.round(fc.count * 1000 / elapsed)} FPS`;
+      fc.count = 0;
+      fc.lastTime = nowFps;
+    }
+
+    // Spatial smoothing: moving average across frequency bins (smooths jagged peaks)
+    // kernelHalf = 0 (no smoothing) to 15 (heavy smoothing)
+    const kernelHalf = Math.round((fftSmoothing / 100) * 15);
+    const numBins = fftData.length;
+    if (!smoothBufRef.current || smoothBufRef.current.length !== numBins) {
+      smoothBufRef.current = new Float32Array(numBins);
+    }
+    const smoothed = smoothBufRef.current;
+    if (kernelHalf <= 0) {
+      smoothed.set(fftData);
+    } else {
+      for (let i = 0; i < numBins; i++) {
+        const lo = Math.max(0, i - kernelHalf);
+        const hi = Math.min(numBins - 1, i + kernelHalf);
+        let sum = 0;
+        for (let j = lo; j <= hi; j++) sum += fftData[j]!;
+        smoothed[i] = sum / (hi - lo + 1);
+      }
+    }
+
     const { gl, specProgram, overlayProgram, binBuffer, powerBuffer, overlayBuffer } = glRef.current;
     const canvas = canvasRef.current!;
 
@@ -158,7 +194,6 @@ export default function SpectrumView({
 
     // --- Spectrum line ---
     gl.useProgram(specProgram);
-    const numBins = fftData.length;
     const bins = new Float32Array(numBins);
     for (let i = 0; i < numBins; i++) bins[i] = i;
 
@@ -171,7 +206,7 @@ export default function SpectrumView({
     gl.vertexAttribPointer(specBinLoc, 1, gl.FLOAT, false, 0, 0);
 
     gl.bindBuffer(gl.ARRAY_BUFFER, powerBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, fftData, gl.DYNAMIC_DRAW);
+    gl.bufferData(gl.ARRAY_BUFFER, smoothed, gl.DYNAMIC_DRAW);
     gl.enableVertexAttribArray(specPowerLoc);
     gl.vertexAttribPointer(specPowerLoc, 1, gl.FLOAT, false, 0, 0);
 
@@ -182,7 +217,7 @@ export default function SpectrumView({
     gl.drawArrays(gl.LINE_STRIP, 0, numBins);
 
     gl.disable(gl.BLEND);
-  }, [fftData]);
+  }, [fftData, fftSmoothing, displayOffset]);
 
   // Offset to percentage
   const cursorPct = 50 + (tuningOffset / sampleRate) * 100;
@@ -214,12 +249,13 @@ export default function SpectrumView({
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     // Update readout
-    if (fftData && containerRef.current) {
+    if (smoothBufRef.current && containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
       const x = (e.clientX - rect.left) / rect.width;
       const freq = frequency + (x - 0.5) * sampleRate;
-      const binIdx = Math.round(x * fftData.length);
-      const power = binIdx >= 0 && binIdx < fftData.length ? fftData[binIdx]! : MIN_DB;
+      const buf = smoothBufRef.current;
+      const binIdx = Math.round(x * buf.length);
+      const power = binIdx >= 0 && binIdx < buf.length ? buf[binIdx]! : MIN_DB;
       setMouseFreq({ freq, power });
     }
 
@@ -273,12 +309,28 @@ export default function SpectrumView({
     >
       <canvas ref={canvasRef} className={styles.canvas} />
 
-      {/* dB labels */}
+      {/* Dynamic dB scale */}
       <div className={styles.dbLabels}>
-        <div className={styles.dbLabel} style={{ top: '25%' }}>-20</div>
-        <div className={styles.dbLabel} style={{ top: '50%' }}>-40</div>
-        <div className={styles.dbLabel} style={{ top: '75%' }}>-60</div>
+        {(() => {
+          const minDb = MIN_DB + displayOffset;
+          const maxDb = MAX_DB + displayOffset;
+          const range = maxDb - minDb;
+          const labels: { db: number; pct: number }[] = [];
+          const step = 10;
+          const start = Math.ceil(minDb / step) * step;
+          for (let db = start; db < maxDb; db += step) {
+            labels.push({ db, pct: 100 - ((db - minDb) / range) * 100 });
+          }
+          return labels.map(l => (
+            <div key={l.db} className={styles.dbLabel} style={{ top: `${l.pct}%` }}>
+              {l.db}
+            </div>
+          ));
+        })()}
       </div>
+
+      {/* FPS counter */}
+      <div ref={fpsLabelRef} className={styles.fpsLabel}>-- FPS</div>
 
       {/* Demod bandwidth highlight */}
       <div

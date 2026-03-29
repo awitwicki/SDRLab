@@ -24,6 +24,11 @@
   flex: 0 0 200px;
 }
 
+.spectrumExpanded {
+  flex: 1;
+  min-height: 200px;
+}
+
 .freqAxis {
   flex: 0 0 auto;
   border-bottom: 1px solid var(--border);

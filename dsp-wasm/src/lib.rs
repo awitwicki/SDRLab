@@ -16,24 +16,26 @@ thread_local! {
 
 #[wasm_bindgen]
 pub fn wasm_init(sample_rate: u32, fft_size: u32, demod_mode: u8,
-                 squelch_level: f32, freq_offset: f32, ook_enabled: bool, channel_bw: f32) {
+                 squelch_level: f32, freq_offset: f32, ook_enabled: bool, channel_bw: f32,
+                 audio_enabled: bool) {
     STATE.with(|s| {
         *s.borrow_mut() = DspState::new(sample_rate, fft_size);
-        s.borrow_mut().update_config(sample_rate, demod_mode, fft_size, squelch_level, freq_offset, ook_enabled, channel_bw);
+        s.borrow_mut().update_config(sample_rate, demod_mode, fft_size, squelch_level, freq_offset, ook_enabled, channel_bw, audio_enabled);
     });
 }
 
 #[wasm_bindgen]
 pub fn wasm_update_config(sample_rate: u32, demod_mode: u8, fft_size: u32,
-                          squelch_level: f32, freq_offset: f32, ook_enabled: bool, channel_bw: f32) {
+                          squelch_level: f32, freq_offset: f32, ook_enabled: bool, channel_bw: f32,
+                          audio_enabled: bool) {
     STATE.with(|s| {
-        s.borrow_mut().update_config(sample_rate, demod_mode, fft_size, squelch_level, freq_offset, ook_enabled, channel_bw);
+        s.borrow_mut().update_config(sample_rate, demod_mode, fft_size, squelch_level, freq_offset, ook_enabled, channel_bw, audio_enabled);
     });
 }
 
 #[wasm_bindgen]
-pub fn wasm_process_iq(iq: &[f32]) {
-    STATE.with(|s| { s.borrow_mut().process_iq(iq); });
+pub fn wasm_process_iq_raw(raw: &[u8]) {
+    STATE.with(|s| { s.borrow_mut().process_iq_raw(raw); });
 }
 
 #[wasm_bindgen]

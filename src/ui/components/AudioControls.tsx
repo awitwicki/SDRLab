@@ -5,18 +5,26 @@ interface AudioControlsProps {
   squelchLevel: number;
   channelBandwidth: number;
   recording: boolean;
+  audioEnabled: boolean;
   onVolumeChange: (v: number) => void;
   onSquelchChange: (v: number) => void;
   onBandwidthChange: (hz: number) => void;
   onRecordToggle: () => void;
+  onAudioToggle: (enabled: boolean) => void;
 }
 
 export default function AudioControls({
-  volume, squelchLevel, channelBandwidth, recording,
-  onVolumeChange, onSquelchChange, onBandwidthChange, onRecordToggle,
+  volume, squelchLevel, channelBandwidth, recording, audioEnabled,
+  onVolumeChange, onSquelchChange, onBandwidthChange, onRecordToggle, onAudioToggle,
 }: AudioControlsProps) {
   return (
     <>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, marginBottom: 6 }}>
+        <label>
+          <input type="checkbox" checked={audioEnabled} onChange={e => onAudioToggle(e.target.checked)} />
+          {' '}Enable Audio
+        </label>
+      </div>
       <div className={styles.row}>
         <span className={styles.label}>Vol</span>
         <input type="range" className={styles.slider} min={0} max={1} step={0.01} value={volume} onChange={e => onVolumeChange(Number(e.target.value))} />

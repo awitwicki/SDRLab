@@ -42,21 +42,60 @@
   color: #000;
 }
 
-.freqDisplay {
+.freqDigits {
+  display: flex;
+  align-items: center;
   font-family: var(--font-mono);
   font-size: 20px;
   font-weight: 700;
   color: var(--accent);
-  cursor: default;
-  letter-spacing: 0.5px;
-  padding: 2px 8px;
-  border-radius: var(--radius);
-  min-width: 180px;
-  text-align: center;
+  user-select: none;
+  padding: 2px 4px;
 }
 
-.freqDisplay:hover {
+.freqDigit {
+  cursor: pointer;
+  padding: 0 1px;
+  border-radius: 2px;
+  line-height: 1.2;
+}
+
+.freqDigit:hover {
   background: var(--bg-input);
+}
+
+.freqDigitDim {
+  color: var(--text-muted);
+}
+
+.freqSep {
+  color: var(--text-muted);
+  padding: 0 1px;
+  font-size: 16px;
+  pointer-events: none;
+}
+
+.freqUnit {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: 4px;
+  font-weight: 400;
+}
+
+.freqEditBtn {
+  padding: 2px 6px;
+  font-size: 14px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.freqEditBtn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 .freqInput {

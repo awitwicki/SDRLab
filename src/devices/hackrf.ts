@@ -23,7 +23,7 @@ const enum TransceiverMode {
 export class HackRF implements SDRDevice {
   private device: USBDevice | null = null;
   private streaming = false;
-  private rxCallback: ((iq: Float32Array) => void) | null = null;
+  private rxCallback: ((raw: Uint8Array) => void) | null = null;
   private gains: Record<string, number> = { amp: 0, lna: 16, vga: 20 };
 
   async connect(): Promise<void> {
@@ -143,7 +143,7 @@ export class HackRF implements SDRDevice {
     }
   }
 
-  async startRx(callback: (iq: Float32Array) => void): Promise<void> {
+  async startRx(callback: (raw: Uint8Array) => void): Promise<void> {
     if (!this.device || this.streaming) return;
     this.rxCallback = callback;
     this.streaming = true;
@@ -163,12 +163,9 @@ export class HackRF implements SDRDevice {
       try {
         const result = await this.device.transferIn(1, TRANSFER_SIZE);
         if (result.data && result.data.byteLength > 0 && this.rxCallback) {
-          const raw = new Int8Array(result.data.buffer);
-          const floats = new Float32Array(raw.length);
-          for (let i = 0; i < raw.length; i++) {
-            floats[i] = raw[i]! / 128;
-          }
-          this.rxCallback(floats);
+          // Pass raw bytes directly — WASM handles int8→float conversion
+          const raw = new Uint8Array(result.data.buffer, result.data.byteOffset, result.data.byteLength);
+          this.rxCallback(raw);
         }
       } catch (err) {
         if (this.streaming) {

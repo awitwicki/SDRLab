@@ -71,4 +71,15 @@
   font-family: var(--font-mono);
   font-size: 9px;
   color: var(--text-muted);
+  transform: translateY(-50%);
+}
+
+.fpsLabel {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  pointer-events: none;
 }

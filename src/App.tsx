@@ -17,6 +17,36 @@ import styles from './App.module.css';
 
 const DEFAULT_FREQUENCY = 100_000_000;
 const DEFAULT_SAMPLE_RATE = 2_000_000;
+const STORAGE_KEY = 'sdrlab-settings';
+
+interface SavedSettings {
+  frequency: number;
+  sampleRate: number;
+  demodMode: DemodMode;
+  gains: Record<string, number>;
+  squelchLevel: number;
+  fftSize: number;
+  channelBandwidth: number;
+  colorMap: ColorMap;
+  waterfallSpeed: number;
+  displayOffset: number;
+  fftSmoothing: number;
+  panelOpen: boolean;
+  audioEnabled: boolean;
+  waterfallEnabled: boolean;
+}
+
+function loadSettings(): Partial<SavedSettings> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return JSON.parse(raw) as Partial<SavedSettings>;
+  } catch { /* ignore corrupt data */ }
+  return {};
+}
+
+function saveSettings(s: SavedSettings): void {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch { /* quota exceeded */ }
+}
 
 export default function App() {
   const device = useDevice();
@@ -27,20 +57,38 @@ export default function App() {
     onAudio: (samples, squelchOpen) => audioRef.current.pushAudio(samples, squelchOpen),
   });
 
-  const [frequency, setFrequency] = useState(DEFAULT_FREQUENCY);
-  const [sampleRate, setSampleRate] = useState(DEFAULT_SAMPLE_RATE);
+  const saved = useRef(loadSettings()).current;
+  const [frequency, setFrequency] = useState(saved.frequency ?? DEFAULT_FREQUENCY);
+  const [sampleRate, setSampleRate] = useState(saved.sampleRate ?? DEFAULT_SAMPLE_RATE);
   const [tuningOffset, setTuningOffset] = useState(0);
-  const [demodMode, setDemodMode] = useState<DemodMode>('WFM');
-  const [gains, setGains] = useState<Record<string, number>>({ amp: 0, lna: 16, vga: 20 });
-  const [squelchLevel, setSquelchLevel] = useState(-60);
-  const [fftSize, setFftSize] = useState(1024);
-  const [channelBandwidth, setChannelBandwidth] = useState(200_000);
-  const [colorMap, setColorMap] = useState<ColorMap>('thermal');
-  const [waterfallSpeed, setWaterfallSpeed] = useState(1);
-  const [displayOffset, setDisplayOffset] = useState(0);
-  const [panelOpen, setPanelOpen] = useState(true);
+  const [demodMode, setDemodMode] = useState<DemodMode>(saved.demodMode ?? 'WFM');
+  const [gains, setGains] = useState<Record<string, number>>(saved.gains ?? { amp: 0, lna: 0, vga: 0 });
+  const [squelchLevel, setSquelchLevel] = useState(saved.squelchLevel ?? -60);
+  const [fftSize, setFftSize] = useState(saved.fftSize ?? 1024);
+  const [channelBandwidth, setChannelBandwidth] = useState(saved.channelBandwidth ?? 200_000);
+  const [colorMap, setColorMap] = useState<ColorMap>(saved.colorMap ?? 'thermal');
+  const [waterfallSpeed, setWaterfallSpeed] = useState(saved.waterfallSpeed ?? 1);
+  const [displayOffset, setDisplayOffset] = useState(saved.displayOffset ?? 0);
+  const [fftSmoothing, setFftSmoothing] = useState(saved.fftSmoothing ?? 50);
+  const [panelOpen, setPanelOpen] = useState(saved.panelOpen ?? true);
+  const [audioEnabled, setAudioEnabled] = useState(saved.audioEnabled ?? true);
+  const [waterfallEnabled, setWaterfallEnabled] = useState(saved.waterfallEnabled ?? true);
   const [ookEnabled, setOokEnabled] = useState(false);
   const [usbRate, setUsbRate] = useState(0);
+
+  // Persist settings to localStorage (debounced)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      saveSettings({
+        frequency, sampleRate, demodMode, gains, squelchLevel, fftSize,
+        channelBandwidth, colorMap, waterfallSpeed, displayOffset, fftSmoothing, panelOpen,
+        audioEnabled, waterfallEnabled,
+      });
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [frequency, sampleRate, demodMode, gains, squelchLevel, fftSize,
+      channelBandwidth, colorMap, waterfallSpeed, displayOffset, fftSmoothing, panelOpen,
+      audioEnabled, waterfallEnabled]);
 
   const usbBytesRef = useRef(0);
   const usbTimerRef = useRef<ReturnType<typeof setInterval>>();
@@ -64,17 +112,18 @@ export default function App() {
       frequencyOffset: tuningOffset,
       ookEnabled,
       channelBandwidth,
+      audioEnabled,
     });
-  }, [frequency, sampleRate, demodMode, fftSize, squelchLevel, tuningOffset, ookEnabled, channelBandwidth, dsp]);
+  }, [frequency, sampleRate, demodMode, fftSize, squelchLevel, tuningOffset, ookEnabled, channelBandwidth, audioEnabled, dsp]);
 
   const handleConnect = useCallback(async () => {
     try {
       await device.connect();
-      await audio.init();
+      if (audioEnabled) await audio.init();
     } catch (err) {
       console.error('Connect failed:', err);
     }
-  }, [device, audio]);
+  }, [device, audio, audioEnabled]);
 
   const handleDisconnect = useCallback(async () => {
     await device.stop();
@@ -89,9 +138,9 @@ export default function App() {
       for (const [stage, value] of Object.entries(gains)) {
         await device.setGain(stage, value);
       }
-      await device.startRx((iq: Float32Array) => {
-        usbBytesRef.current += iq.byteLength;
-        dsp.sendIQ(iq);
+      await device.startRx((raw: Uint8Array) => {
+        usbBytesRef.current += raw.byteLength;
+        dsp.sendIQ(raw);
       });
     } catch (err) {
       console.error('[Start] Failed:', err);
@@ -173,7 +222,7 @@ export default function App() {
       </div>
 
       <div className={styles.main}>
-        <div className={styles.spectrum}>
+        <div className={waterfallEnabled ? styles.spectrum : styles.spectrumExpanded}>
           <SpectrumView
             fftData={dsp.fftData}
             frequency={frequency}
@@ -181,30 +230,35 @@ export default function App() {
             tuningOffset={tuningOffset}
             demodMode={demodMode}
             displayOffset={displayOffset}
+            fftSmoothing={fftSmoothing}
             onTuningOffsetChange={handleTuningOffsetChange}
             onCenterFrequencyPan={handleCenterFrequencyPan}
           />
         </div>
-        <div className={styles.freqAxis}>
-          <FrequencyAxis
-            centerFrequency={frequency}
-            sampleRate={sampleRate}
-          />
-        </div>
-        <div className={styles.waterfall}>
-          <WaterfallView
-            fftData={dsp.fftData}
-            frequency={frequency}
-            sampleRate={sampleRate}
-            colorMap={colorMap}
-            tuningOffset={tuningOffset}
-            demodMode={demodMode}
-            displayOffset={displayOffset}
-            waterfallSpeed={waterfallSpeed}
-            onTuningOffsetChange={handleTuningOffsetChange}
-            onCenterFrequencyPan={handleCenterFrequencyPan}
-          />
-        </div>
+        {waterfallEnabled && (
+          <>
+            <div className={styles.freqAxis}>
+              <FrequencyAxis
+                centerFrequency={frequency}
+                sampleRate={sampleRate}
+              />
+            </div>
+            <div className={styles.waterfall}>
+              <WaterfallView
+                fftData={dsp.fftData}
+                frequency={frequency}
+                sampleRate={sampleRate}
+                colorMap={colorMap}
+                tuningOffset={tuningOffset}
+                demodMode={demodMode}
+                displayOffset={displayOffset}
+                waterfallSpeed={waterfallSpeed}
+                onTuningOffsetChange={handleTuningOffsetChange}
+                onCenterFrequencyPan={handleCenterFrequencyPan}
+              />
+            </div>
+          </>
+        )}
         {ookEnabled && (
           <div className={styles.decoder}>
             <DigitalDecoder
@@ -227,10 +281,12 @@ export default function App() {
               squelchLevel={squelchLevel}
               channelBandwidth={channelBandwidth}
               recording={audio.recording}
+              audioEnabled={audioEnabled}
               onVolumeChange={audio.setVolume}
               onSquelchChange={setSquelchLevel}
               onBandwidthChange={setChannelBandwidth}
               onRecordToggle={handleRecordToggle}
+              onAudioToggle={setAudioEnabled}
             />
           </AccordionSection>
           <AccordionSection title="Display">
@@ -239,10 +295,14 @@ export default function App() {
               colorMap={colorMap}
               waterfallSpeed={waterfallSpeed}
               displayOffset={displayOffset}
+              fftSmoothing={fftSmoothing}
+              waterfallEnabled={waterfallEnabled}
               onFftSizeChange={setFftSize}
               onColorMapChange={setColorMap}
               onWaterfallSpeedChange={setWaterfallSpeed}
               onDisplayOffsetChange={setDisplayOffset}
+              onFftSmoothingChange={setFftSmoothing}
+              onWaterfallToggle={setWaterfallEnabled}
             />
           </AccordionSection>
           <AccordionSection title="Digital" defaultOpen={false}>

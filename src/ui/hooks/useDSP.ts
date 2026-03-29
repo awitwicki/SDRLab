@@ -9,7 +9,7 @@ interface UseDSPOptions {
 interface UseDSPReturn {
   fftData: Float32Array | null;
   bitEvents: BitEvent[];
-  sendIQ: (data: Float32Array) => void;
+  sendIQ: (data: Uint8Array) => void;
   updateConfig: (config: {
     frequency: number;
     sampleRate: number;
@@ -19,8 +19,12 @@ interface UseDSPReturn {
     frequencyOffset: number;
     ookEnabled: boolean;
     channelBandwidth: number;
+    audioEnabled: boolean;
   }) => void;
 }
+
+// Max IQ chunks in-flight to worker. Prevents unbounded queue buildup at high sample rates.
+const MAX_IN_FLIGHT = 3;
 
 export function useDSP(options: UseDSPOptions = {}): UseDSPReturn {
   const workerRef = useRef<Worker | null>(null);
@@ -30,6 +34,7 @@ export function useDSP(options: UseDSPOptions = {}): UseDSPReturn {
   // Refs for hot-path data that shouldn't trigger re-renders
   const fftRef = useRef<Float32Array | null>(null);
   const rafRef = useRef(0);
+  const inFlightRef = useRef(0);
   const onAudioRef = useRef(options.onAudio);
   onAudioRef.current = options.onAudio;
 
@@ -40,7 +45,6 @@ export function useDSP(options: UseDSPOptions = {}): UseDSPReturn {
       const msg = event.data;
       switch (msg.type) {
         case 'fft':
-          // Store in ref, throttle React updates to requestAnimationFrame (~60fps)
           fftRef.current = msg.bins;
           if (!rafRef.current) {
             rafRef.current = requestAnimationFrame(() => {
@@ -50,11 +54,14 @@ export function useDSP(options: UseDSPOptions = {}): UseDSPReturn {
           }
           break;
         case 'audio':
-          // Direct callback — bypasses React state entirely
           onAudioRef.current?.(msg.samples, msg.squelchOpen);
           break;
         case 'bits':
           setBitEvents(prev => [...prev.slice(-100), ...msg.data]);
+          break;
+        case 'processed':
+          // Backpressure: worker finished processing a chunk
+          if (inFlightRef.current > 0) inFlightRef.current--;
           break;
       }
     };
@@ -67,7 +74,10 @@ export function useDSP(options: UseDSPOptions = {}): UseDSPReturn {
     };
   }, []);
 
-  const sendIQ = useCallback((data: Float32Array) => {
+  const sendIQ = useCallback((data: Uint8Array) => {
+    // Backpressure: drop IQ chunks when worker is behind (prevents minutes of lag at 20Msps)
+    if (inFlightRef.current >= MAX_IN_FLIGHT) return;
+    inFlightRef.current++;
     const msg: WorkerInMessage = { type: 'iq', data };
     workerRef.current?.postMessage(msg, { transfer: [data.buffer] } as unknown as StructuredSerializeOptions);
   }, []);
@@ -81,6 +91,7 @@ export function useDSP(options: UseDSPOptions = {}): UseDSPReturn {
     frequencyOffset: number;
     ookEnabled: boolean;
     channelBandwidth: number;
+    audioEnabled: boolean;
   }) => {
     const msg: WorkerInMessage = { type: 'config', ...config };
     workerRef.current?.postMessage(msg);
