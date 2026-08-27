@@ -18,10 +18,26 @@ import styles from './App.module.css';
 const DEFAULT_FREQUENCY = 100_000_000;
 const DEFAULT_SAMPLE_RATE = 2_000_000;
 const STORAGE_KEY = 'sdrlab-settings';
+const MIN_FREQ = 1_000_000;      // HackRF One lower limit
+const MAX_FREQ = 6_000_000_000;  // HackRF One upper limit
+const clampFreq = (hz: number) => Math.min(MAX_FREQ, Math.max(MIN_FREQ, hz));
+const MODE_DEFAULT_BW: Record<DemodMode, number> = { WFM: 200_000, NFM: 15_000, AM: 10_000 };
+// Bump whenever a saved field's *meaning* changes in a way that makes an old
+// stored value actively wrong (not just outdated) — e.g. v2: squelchLevel
+// was tuned by users against the pre-multi-stage-decimation squelch
+// measurement, which read channel power inflated by wide-filter leakage
+// (~14 dB high at narrow bandwidths). Loading that old value verbatim now
+// under-squelches (opens too easily) or, more commonly for a threshold
+// tuned against inflated readings, leaves squelch shut on real signals.
+// loadSettings() drops just the affected field(s) when the stored version
+// is behind, so the rest of a user's settings still restore normally.
+const SETTINGS_VERSION = 2;
 
 interface SavedSettings {
+  settingsVersion: number;
   frequency: number;
   sampleRate: number;
+  tuningOffset: number;
   demodMode: DemodMode;
   gains: Record<string, number>;
   squelchLevel: number;
@@ -34,12 +50,22 @@ interface SavedSettings {
   panelOpen: boolean;
   audioEnabled: boolean;
   waterfallEnabled: boolean;
+  spectrumHeight: number;
 }
 
 function loadSettings(): Partial<SavedSettings> {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as Partial<SavedSettings>;
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<SavedSettings>;
+      if ((parsed.settingsVersion ?? 0) < SETTINGS_VERSION) {
+        // Stale squelchLevel from a pre-v2 save — drop it so the caller's
+        // `saved.squelchLevel ?? -60` falls through to the default instead
+        // of using a threshold tuned against the old, inflated readings.
+        delete parsed.squelchLevel;
+      }
+      return parsed;
+    }
   } catch { /* ignore corrupt data */ }
   return {};
 }
@@ -57,12 +83,12 @@ export default function App() {
     onAudio: (samples, squelchOpen) => audioRef.current.pushAudio(samples, squelchOpen),
   });
 
-  const saved = useRef(loadSettings()).current;
+  const [saved] = useState(loadSettings); // lazy init — runs exactly once
   const [frequency, setFrequency] = useState(saved.frequency ?? DEFAULT_FREQUENCY);
   const [sampleRate, setSampleRate] = useState(saved.sampleRate ?? DEFAULT_SAMPLE_RATE);
-  const [tuningOffset, setTuningOffset] = useState(0);
+  const [tuningOffset, setTuningOffset] = useState(saved.tuningOffset ?? 0);
   const [demodMode, setDemodMode] = useState<DemodMode>(saved.demodMode ?? 'WFM');
-  const [gains, setGains] = useState<Record<string, number>>(saved.gains ?? { amp: 0, lna: 0, vga: 0 });
+  const [gains, setGains] = useState<Record<string, number>>(saved.gains ?? { amp: 0, lna: 16, vga: 20 });
   const [squelchLevel, setSquelchLevel] = useState(saved.squelchLevel ?? -60);
   const [fftSize, setFftSize] = useState(saved.fftSize ?? 1024);
   const [channelBandwidth, setChannelBandwidth] = useState(saved.channelBandwidth ?? 200_000);
@@ -73,6 +99,7 @@ export default function App() {
   const [panelOpen, setPanelOpen] = useState(saved.panelOpen ?? true);
   const [audioEnabled, setAudioEnabled] = useState(saved.audioEnabled ?? true);
   const [waterfallEnabled, setWaterfallEnabled] = useState(saved.waterfallEnabled ?? true);
+  const [spectrumHeight, setSpectrumHeight] = useState(saved.spectrumHeight ?? 200);
   const [ookEnabled, setOokEnabled] = useState(false);
   const [usbRate, setUsbRate] = useState(0);
 
@@ -80,15 +107,16 @@ export default function App() {
   useEffect(() => {
     const timer = setTimeout(() => {
       saveSettings({
-        frequency, sampleRate, demodMode, gains, squelchLevel, fftSize,
+        settingsVersion: SETTINGS_VERSION,
+        frequency, sampleRate, tuningOffset, demodMode, gains, squelchLevel, fftSize,
         channelBandwidth, colorMap, waterfallSpeed, displayOffset, fftSmoothing, panelOpen,
-        audioEnabled, waterfallEnabled,
+        audioEnabled, waterfallEnabled, spectrumHeight,
       });
     }, 500);
     return () => clearTimeout(timer);
-  }, [frequency, sampleRate, demodMode, gains, squelchLevel, fftSize,
+  }, [frequency, sampleRate, tuningOffset, demodMode, gains, squelchLevel, fftSize,
       channelBandwidth, colorMap, waterfallSpeed, displayOffset, fftSmoothing, panelOpen,
-      audioEnabled, waterfallEnabled]);
+      audioEnabled, waterfallEnabled, spectrumHeight]);
 
   const usbBytesRef = useRef(0);
   const usbTimerRef = useRef<ReturnType<typeof setInterval>>();
@@ -114,24 +142,25 @@ export default function App() {
       channelBandwidth,
       audioEnabled,
     });
-  }, [frequency, sampleRate, demodMode, fftSize, squelchLevel, tuningOffset, ookEnabled, channelBandwidth, audioEnabled, dsp]);
+  }, [frequency, sampleRate, demodMode, fftSize, squelchLevel, tuningOffset, ookEnabled, channelBandwidth, audioEnabled, dsp.updateConfig]);
 
   const handleConnect = useCallback(async () => {
     try {
       await device.connect();
-      if (audioEnabled) await audio.init();
+      if (audioEnabled) await audioRef.current.init();
     } catch (err) {
       console.error('Connect failed:', err);
     }
-  }, [device, audio, audioEnabled]);
+  }, [device, audioEnabled]);
 
   const handleDisconnect = useCallback(async () => {
     await device.stop();
     await device.disconnect();
-    await audio.destroy();
-  }, [device, audio]);
+    await audioRef.current.destroy();
+  }, [device]);
 
   const handleStart = useCallback(async () => {
+    audioRef.current.flush();
     try {
       await device.setFrequency(frequency);
       await device.setSampleRate(sampleRate);
@@ -145,9 +174,10 @@ export default function App() {
     } catch (err) {
       console.error('[Start] Failed:', err);
     }
-  }, [device, dsp, frequency, sampleRate, gains]);
+  }, [device, dsp.sendIQ, frequency, sampleRate, gains]);
 
   const handleStop = useCallback(async () => {
+    audioRef.current.flush();
     await device.stop();
   }, [device]);
 
@@ -162,9 +192,10 @@ export default function App() {
   }, [device]);
 
   const handleFrequencyChange = useCallback((hz: number) => {
-    setFrequency(hz);
+    const clamped = clampFreq(hz);
+    setFrequency(clamped);
     setTuningOffset(0);
-    syncFreqToDevice(hz);
+    syncFreqToDevice(clamped);
   }, [syncFreqToDevice]);
 
   const handleTuningOffsetChange = useCallback((offset: number) => {
@@ -173,12 +204,19 @@ export default function App() {
   }, [sampleRate]);
 
   const handleCenterFrequencyPan = useCallback((hz: number) => {
-    const rounded = Math.round(hz / 1000) * 1000;
+    const rounded = clampFreq(Math.round(hz / 1000) * 1000);
     setFrequency(rounded);
     syncFreqToDevice(rounded);
   }, [syncFreqToDevice]);
 
+  const handleDemodModeChange = useCallback((mode: DemodMode) => {
+    audioRef.current.flush();
+    setDemodMode(mode);
+    setChannelBandwidth(MODE_DEFAULT_BW[mode]);
+  }, []);
+
   const handleSampleRateChange = useCallback(async (hz: number) => {
+    audioRef.current.flush();
     setSampleRate(hz);
     setTuningOffset(prev => Math.max(-hz / 2, Math.min(hz / 2, prev)));
     if (device.running) {
@@ -194,12 +232,45 @@ export default function App() {
   }, [device]);
 
   const handleRecordToggle = useCallback(() => {
-    if (audio.recording) {
-      audio.stopRecording();
+    if (audioRef.current.recording) {
+      audioRef.current.stopRecording();
     } else {
-      audio.startRecording();
+      audioRef.current.startRecording();
     }
-  }, [audio]);
+  }, []);
+
+  const handleAudioToggle = useCallback(async (enabled: boolean) => {
+    setAudioEnabled(enabled);
+    if (enabled && !audioRef.current.initialized) {
+      try { await audioRef.current.init(); } catch (err) { console.error('Audio init failed:', err); }
+    }
+  }, []);
+
+  const handlePanelToggle = useCallback(() => setPanelOpen(p => !p), []);
+  const handleOokToggle = useCallback(() => setOokEnabled(false), []);
+  const handleOokChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => setOokEnabled(e.target.checked), []);
+
+  const mainRef = useRef<HTMLDivElement>(null);
+  const splitDragRef = useRef<{ startY: number; startH: number } | null>(null);
+
+  const handleSplitDown = useCallback((e: React.PointerEvent) => {
+    if (!waterfallEnabled || e.button !== 0) return;
+    splitDragRef.current = { startY: e.clientY, startH: spectrumHeight };
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  }, [waterfallEnabled, spectrumHeight]);
+
+  const handleSplitMove = useCallback((e: React.PointerEvent) => {
+    const drag = splitDragRef.current;
+    if (!drag) return;
+    // Reserve >=160px for waterfall+axis, plus the OOK decoder panel's fixed
+    // 240px (.decoder in App.module.css) when it's showing — otherwise the
+    // decoder panel can get pushed past .main's overflow:hidden and clipped.
+    const reserved = waterfallEnabled && ookEnabled ? 160 + 240 : 160;
+    const maxH = (mainRef.current?.offsetHeight ?? 800) - reserved;
+    setSpectrumHeight(Math.max(100, Math.min(maxH, drag.startH + (e.clientY - drag.startY))));
+  }, [waterfallEnabled, ookEnabled]);
+
+  const handleSplitUp = useCallback(() => { splitDragRef.current = null; }, []);
 
   return (
     <div className={styles.app}>
@@ -216,62 +287,71 @@ export default function App() {
           onStart={handleStart}
           onStop={handleStop}
           onFrequencyChange={handleFrequencyChange}
-          onDemodModeChange={setDemodMode}
+          onDemodModeChange={handleDemodModeChange}
           onSampleRateChange={handleSampleRateChange}
+          rdsPs={dsp.rdsData?.ps}
         />
       </div>
 
-      <div className={styles.main}>
-        <div className={waterfallEnabled ? styles.spectrum : styles.spectrumExpanded}>
+      <div className={styles.main} ref={mainRef}>
+        <div
+          className={waterfallEnabled ? styles.spectrum : styles.spectrumExpanded}
+          style={waterfallEnabled ? { flex: `0 0 ${spectrumHeight}px` } : undefined}
+        >
           <SpectrumView
             fftData={dsp.fftData}
             frequency={frequency}
             sampleRate={sampleRate}
             tuningOffset={tuningOffset}
-            demodMode={demodMode}
+            channelBandwidth={channelBandwidth}
             displayOffset={displayOffset}
             fftSmoothing={fftSmoothing}
             onTuningOffsetChange={handleTuningOffsetChange}
             onCenterFrequencyPan={handleCenterFrequencyPan}
           />
         </div>
+        <div
+          className={styles.freqAxis}
+          data-resizable={waterfallEnabled}
+          onPointerDown={handleSplitDown}
+          onPointerMove={handleSplitMove}
+          onPointerUp={handleSplitUp}
+          onPointerCancel={handleSplitUp}
+        >
+          <FrequencyAxis
+            centerFrequency={frequency}
+            sampleRate={sampleRate}
+          />
+        </div>
         {waterfallEnabled && (
-          <>
-            <div className={styles.freqAxis}>
-              <FrequencyAxis
-                centerFrequency={frequency}
-                sampleRate={sampleRate}
-              />
-            </div>
-            <div className={styles.waterfall}>
-              <WaterfallView
-                fftData={dsp.fftData}
-                frequency={frequency}
-                sampleRate={sampleRate}
-                colorMap={colorMap}
-                tuningOffset={tuningOffset}
-                demodMode={demodMode}
-                displayOffset={displayOffset}
-                waterfallSpeed={waterfallSpeed}
-                onTuningOffsetChange={handleTuningOffsetChange}
-                onCenterFrequencyPan={handleCenterFrequencyPan}
-              />
-            </div>
-          </>
+          <div className={styles.waterfall}>
+            <WaterfallView
+              fftData={dsp.fftData}
+              frequency={frequency}
+              sampleRate={sampleRate}
+              colorMap={colorMap}
+              tuningOffset={tuningOffset}
+              channelBandwidth={channelBandwidth}
+              displayOffset={displayOffset}
+              waterfallSpeed={waterfallSpeed}
+              onTuningOffsetChange={handleTuningOffsetChange}
+              onCenterFrequencyPan={handleCenterFrequencyPan}
+            />
+          </div>
         )}
         {ookEnabled && (
           <div className={styles.decoder}>
             <DigitalDecoder
               bits={dsp.bitEvents}
               enabled={ookEnabled}
-              onToggle={() => setOokEnabled(false)}
+              onToggle={handleOokToggle}
             />
           </div>
         )}
       </div>
 
       <div className={panelOpen ? styles.panel : styles.panelCollapsed}>
-        <ControlPanel open={panelOpen} onToggle={() => setPanelOpen(!panelOpen)}>
+        <ControlPanel open={panelOpen} onToggle={handlePanelToggle}>
           <AccordionSection title="Gain">
             <GainControls gains={gains} onGainChange={handleGainChange} />
           </AccordionSection>
@@ -286,7 +366,7 @@ export default function App() {
               onSquelchChange={setSquelchLevel}
               onBandwidthChange={setChannelBandwidth}
               onRecordToggle={handleRecordToggle}
-              onAudioToggle={setAudioEnabled}
+              onAudioToggle={handleAudioToggle}
             />
           </AccordionSection>
           <AccordionSection title="Display">
@@ -311,7 +391,7 @@ export default function App() {
                 <input
                   type="checkbox"
                   checked={ookEnabled}
-                  onChange={e => setOokEnabled(e.target.checked)}
+                  onChange={handleOokChange}
                 />
                 {' '}Enable OOK Decoder
               </label>
@@ -328,6 +408,7 @@ export default function App() {
           bufferLevel={audio.bufferLevel}
           bufferSize={audio.bufferSize}
           usbRate={usbRate}
+          rdsText={dsp.rdsData && (dsp.rdsData.ps || dsp.rdsData.rt) ? `${dsp.rdsData.ps} — ${dsp.rdsData.rt}` : undefined}
         />
       </div>
     </div>

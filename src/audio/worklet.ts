@@ -1,67 +1,51 @@
 // src/audio/worklet.ts
 // @ts-nocheck
-// This file runs in AudioWorklet scope where AudioWorkletProcessor and
-// registerProcessor are globals not known to the TypeScript DOM lib.
+// Runs in AudioWorklet scope (module script) — AudioRing is a real import.
+import { AudioRing } from './ring';
+
+const RING_SIZE = 8192;
+const LATENCY_CAP = 6144;   // if a burst pushes fill past this...
+const LATENCY_TARGET = 2400; // ...trim back to ~50 ms
 
 class SDRWorkletProcessor extends AudioWorkletProcessor {
-  private buffer: Float32Array;
-  private readPos = 0;
-  private writePos = 0;
-  private readonly bufferSize: number;
+  private ring = new AudioRing(RING_SIZE);
   private squelchOpen = true;
+  private lastLevelPost = 0;
 
   constructor() {
     super();
-    this.bufferSize = 8192;
-    this.buffer = new Float32Array(this.bufferSize);
-
     this.port.onmessage = (event: MessageEvent) => {
       const msg = event.data;
       if (msg.type === 'audio') {
-        this.enqueue(msg.samples as Float32Array);
+        this.ring.write(msg.samples as Float32Array);
+        if (this.ring.available() > LATENCY_CAP) this.ring.trimTo(LATENCY_TARGET);
         if (msg.squelchOpen !== undefined) {
           this.squelchOpen = msg.squelchOpen as boolean;
         }
+      } else if (msg.type === 'flush') {
+        this.ring.flush();
       }
     };
-  }
-
-  private enqueue(samples: Float32Array): void {
-    for (let i = 0; i < samples.length; i++) {
-      this.buffer[this.writePos] = samples[i]!;
-      this.writePos = (this.writePos + 1) % this.bufferSize;
-      if (this.writePos === this.readPos) {
-        this.readPos = (this.readPos + 1) % this.bufferSize;
-      }
-    }
-  }
-
-  private available(): number {
-    if (this.writePos >= this.readPos) {
-      return this.writePos - this.readPos;
-    }
-    return this.bufferSize - this.readPos + this.writePos;
   }
 
   process(_inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
     const output = outputs[0]?.[0];
     if (!output) return true;
 
-    if (!this.squelchOpen) {
+    if (this.squelchOpen) {
+      this.ring.read(output);
+    } else {
+      // Muted, but KEEP consuming at real-time rate — otherwise the ring
+      // pins full and playback latency sticks at the high-water mark (F7).
       output.fill(0);
-      return true;
+      this.ring.readInto(null, output.length);
     }
 
-    for (let i = 0; i < output.length; i++) {
-      if (this.available() > 0) {
-        output[i] = this.buffer[this.readPos]!;
-        this.readPos = (this.readPos + 1) % this.bufferSize;
-      } else {
-        output[i] = 0;
-      }
+    // currentTime is an AudioWorkletGlobalScope global (seconds)
+    if (currentTime - this.lastLevelPost > 0.25) {
+      this.lastLevelPost = currentTime;
+      this.port.postMessage({ type: 'bufferLevel', available: this.ring.available(), size: this.ring.size });
     }
-
-    this.port.postMessage({ type: 'bufferLevel', available: this.available(), size: this.bufferSize });
     return true;
   }
 }

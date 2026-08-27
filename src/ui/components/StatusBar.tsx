@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import styles from './StatusBar.module.css';
 
 interface StatusBarProps {
@@ -7,9 +8,10 @@ interface StatusBarProps {
   bufferLevel: number;
   bufferSize: number;
   usbRate: number;
+  rdsText?: string;
 }
 
-export default function StatusBar({ sampleRate, frequency, tuningOffset, bufferLevel, bufferSize, usbRate }: Readonly<StatusBarProps>) {
+function StatusBar({ sampleRate, frequency, tuningOffset, bufferLevel, bufferSize, usbRate, rdsText }: Readonly<StatusBarProps>) {
   const bufferPct = bufferSize > 0 ? (bufferLevel / bufferSize) * 100 : 0;
   const bufferColor = bufferPct > 80 ? 'var(--danger)' : bufferPct > 50 ? 'var(--warning)' : 'var(--success)';
   const lowFreq = (frequency - sampleRate / 2) / 1e6;
@@ -41,6 +43,14 @@ export default function StatusBar({ sampleRate, frequency, tuningOffset, bufferL
         <span className={styles.itemLabel}>USB:</span>
         <span>{(usbRate / 1024).toFixed(0)} KB/s</span>
       </div>
+      {rdsText && (
+        <div className={styles.item}>
+          <span className={styles.itemLabel}>RDS:</span>
+          <span className={styles.rdsText}>{rdsText}</span>
+        </div>
+      )}
     </div>
   );
 }
+
+export default memo(StatusBar);

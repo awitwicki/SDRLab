@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback } from 'react';
-import type { ColorMap, DemodMode } from '../../devices/types';
+import type { ColorMap } from '../../devices/types';
 import styles from './WaterfallView.module.css';
 
 interface WaterfallViewProps {
@@ -8,19 +8,11 @@ interface WaterfallViewProps {
   sampleRate: number;
   colorMap: ColorMap;
   tuningOffset: number;
-  demodMode: DemodMode;
+  channelBandwidth: number;
   waterfallSpeed: number;
   displayOffset: number;
   onTuningOffsetChange: (offset: number) => void;
   onCenterFrequencyPan: (hz: number) => void;
-}
-
-function getDemodBandwidth(mode: DemodMode): number {
-  switch (mode) {
-    case 'WFM': return 200_000;
-    case 'NFM': return 12_500;
-    case 'AM':  return 10_000;
-  }
 }
 
 const VERT_SHADER = `
@@ -73,7 +65,7 @@ function createShader(gl: WebGLRenderingContext, type: number, source: string): 
 const COLOR_MAP_INDEX: Record<ColorMap, number> = { thermal: 0, grayscale: 1, green: 2 };
 
 export default function WaterfallView({
-  fftData, frequency, sampleRate, colorMap, tuningOffset, demodMode, waterfallSpeed, displayOffset,
+  fftData, frequency, sampleRate, colorMap, tuningOffset, channelBandwidth, waterfallSpeed, displayOffset,
   onTuningOffsetChange, onCenterFrequencyPan,
 }: WaterfallViewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -89,6 +81,7 @@ export default function WaterfallView({
   } | null>(null);
 
   const dragRef = useRef<{ type: 'cursor' | 'pan'; startX: number; startVal: number } | null>(null);
+  const rowBufRef = useRef<Uint8Array | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -125,7 +118,18 @@ export default function WaterfallView({
       u_colorMap: gl.getUniformLocation(program, 'u_colorMap')!,
     };
 
+    const resize = () => {
+      const rect = canvas.getBoundingClientRect();
+      const w = Math.max(1, Math.round(rect.width * devicePixelRatio));
+      const h = Math.max(1, Math.round(rect.height * devicePixelRatio));
+      if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+    };
+    resize();
+    const ro = new ResizeObserver(resize);
+    ro.observe(canvas);
+
     return () => {
+      ro.disconnect();
       gl.deleteTexture(texture);
       gl.deleteBuffer(buffer);
       gl.deleteProgram(program);
@@ -141,9 +145,6 @@ export default function WaterfallView({
     const { gl, program, texture } = s;
     const canvas = canvasRef.current!;
 
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * devicePixelRatio;
-    canvas.height = rect.height * devicePixelRatio;
     gl.viewport(0, 0, canvas.width, canvas.height);
 
     if (fftData.length !== s.fftWidth) {
@@ -153,7 +154,10 @@ export default function WaterfallView({
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, s.fftWidth, WATERFALL_ROWS, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, new Uint8Array(s.fftWidth * WATERFALL_ROWS));
     }
 
-    const row = new Uint8Array(s.fftWidth);
+    if (!rowBufRef.current || rowBufRef.current.length !== s.fftWidth) {
+      rowBufRef.current = new Uint8Array(s.fftWidth);
+    }
+    const row = rowBufRef.current;
     for (let i = 0; i < s.fftWidth; i++) {
       const val = i < fftData.length ? fftData[i]! : -80;
       const minDb = -80 + displayOffset;
@@ -186,7 +190,7 @@ export default function WaterfallView({
   }, [sampleRate]);
 
   const cursorPct = 50 + (tuningOffset / sampleRate) * 100;
-  const bw = getDemodBandwidth(demodMode);
+  const bw = channelBandwidth;
   const bwPct = (bw / sampleRate) * 100;
 
   const isNearCursor = useCallback((clientX: number) => {

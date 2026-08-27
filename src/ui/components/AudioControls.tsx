@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import styles from './ControlPanel.module.css';
 
 interface AudioControlsProps {
@@ -13,7 +14,7 @@ interface AudioControlsProps {
   onAudioToggle: (enabled: boolean) => void;
 }
 
-export default function AudioControls({
+function AudioControls({
   volume, squelchLevel, channelBandwidth, recording, audioEnabled,
   onVolumeChange, onSquelchChange, onBandwidthChange, onRecordToggle, onAudioToggle,
 }: AudioControlsProps) {
@@ -37,8 +38,8 @@ export default function AudioControls({
       </div>
       <div className={styles.row}>
         <span className={styles.label}>BW</span>
-        <input type="range" className={styles.slider} min={5000} max={250000} step={5000} value={channelBandwidth} onChange={e => onBandwidthChange(Number(e.target.value))} />
-        <span className={styles.value}>{(channelBandwidth / 1000).toFixed(0)}k</span>
+        <input type="range" className={styles.slider} min={2000} max={250000} step={1000} value={channelBandwidth} onChange={e => onBandwidthChange(Number(e.target.value))} />
+        <span className={styles.value}>{channelBandwidth < 10_000 ? (channelBandwidth / 1000).toFixed(1) : (channelBandwidth / 1000).toFixed(0)}k</span>
       </div>
       <button className={styles.recordBtn} data-recording={recording} onClick={onRecordToggle}>
         {recording ? 'Stop Recording' : 'Record'}
@@ -46,3 +47,5 @@ export default function AudioControls({
     </>
   );
 }
+
+export default memo(AudioControls);

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, memo } from 'react';
 import styles from './FrequencyAxis.module.css';
 
 interface FrequencyAxisProps {
@@ -6,7 +6,7 @@ interface FrequencyAxisProps {
   sampleRate: number;
 }
 
-function chooseTickStep(visibleBandwidth: number): number {
+export function chooseTickStep(visibleBandwidth: number): number {
   const targetTicks = 8;
   const raw = visibleBandwidth / targetTicks;
   const steps = [10_000, 25_000, 50_000, 100_000, 250_000, 500_000, 1_000_000, 2_500_000, 5_000_000];
@@ -24,7 +24,7 @@ function formatTickLabel(hz: number): string {
   return mhz.toFixed(2);
 }
 
-export default function FrequencyAxis({ centerFrequency, sampleRate }: FrequencyAxisProps) {
+function FrequencyAxis({ centerFrequency, sampleRate }: FrequencyAxisProps) {
   const ticks = useMemo(() => {
     const step = chooseTickStep(sampleRate);
     const lowFreq = centerFrequency - sampleRate / 2;
@@ -55,3 +55,5 @@ export default function FrequencyAxis({ centerFrequency, sampleRate }: Frequency
     </div>
   );
 }
+
+export default memo(FrequencyAxis);

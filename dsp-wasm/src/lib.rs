@@ -7,6 +7,8 @@ mod mixer;
 mod demod;
 mod ook;
 mod pipeline;
+mod resampler;
+mod rds;
 
 use pipeline::DspState;
 
@@ -34,8 +36,8 @@ pub fn wasm_update_config(sample_rate: u32, demod_mode: u8, fft_size: u32,
 }
 
 #[wasm_bindgen]
-pub fn wasm_process_iq_raw(raw: &[u8]) {
-    STATE.with(|s| { s.borrow_mut().process_iq_raw(raw); });
+pub fn wasm_process_iq_raw(raw: &[u8], compute_fft: bool) {
+    STATE.with(|s| { s.borrow_mut().process_iq_raw(raw, compute_fft); });
 }
 
 #[wasm_bindgen]
@@ -71,4 +73,42 @@ pub fn wasm_get_bits_len() -> usize {
 #[wasm_bindgen]
 pub fn wasm_get_squelch_open() -> bool {
     STATE.with(|s| s.borrow().squelch_open)
+}
+
+#[wasm_bindgen]
+pub fn wasm_get_rds_version() -> u32 {
+    STATE.with(|s| s.borrow().rds_blocks.version())
+}
+
+#[wasm_bindgen]
+pub fn wasm_get_rds_pi() -> u16 {
+    STATE.with(|s| s.borrow().rds_blocks.pi())
+}
+
+#[wasm_bindgen]
+pub fn wasm_get_rds_ps_ptr() -> usize {
+    STATE.with(|s| s.borrow().rds_blocks.ps().as_ptr() as usize)
+}
+
+#[wasm_bindgen]
+pub fn wasm_get_rds_ps_len() -> usize {
+    8
+}
+
+#[wasm_bindgen]
+pub fn wasm_get_rds_rt_ptr() -> usize {
+    STATE.with(|s| s.borrow().rds_blocks.rt().as_ptr() as usize)
+}
+
+#[wasm_bindgen]
+pub fn wasm_get_rds_rt_len() -> usize {
+    64
+}
+
+/// Clears decoded RDS station state. Called from the worker when it
+/// observes the tuned frequency change (see reset_rds's doc comment in
+/// pipeline.rs for why this can't just live inside wasm_update_config).
+#[wasm_bindgen]
+pub fn wasm_reset_rds() {
+    STATE.with(|s| { s.borrow_mut().reset_rds(); });
 }

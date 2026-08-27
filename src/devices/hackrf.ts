@@ -126,18 +126,20 @@ export class HackRF implements SDRDevice {
       case 'lna': {
         // libhackrf uses controlTransferIn — reads back 1-byte success flag
         const clamped = Math.round(value / 8) * 8;
-        await this.device.controlTransferIn(
+        const result = await this.device.controlTransferIn(
           { requestType: 'vendor', recipient: 'device', request: VendorRequest.SET_LNA_GAIN, value: 0, index: clamped },
           1,
         );
+        if (result.data?.byteLength !== 1 || result.data.getUint8(0) !== 1) console.warn(`[HackRF] LNA gain ${clamped} rejected by firmware`);
         break;
       }
       case 'vga': {
         const clamped = Math.round(value / 2) * 2;
-        await this.device.controlTransferIn(
+        const result = await this.device.controlTransferIn(
           { requestType: 'vendor', recipient: 'device', request: VendorRequest.SET_VGA_GAIN, value: 0, index: clamped },
           1,
         );
+        if (result.data?.byteLength !== 1 || result.data.getUint8(0) !== 1) console.warn(`[HackRF] VGA gain ${clamped} rejected by firmware`);
         break;
       }
     }

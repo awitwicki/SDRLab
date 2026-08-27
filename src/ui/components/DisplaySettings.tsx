@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import type { ColorMap } from '../../devices/types';
 import styles from './ControlPanel.module.css';
 
@@ -16,7 +17,7 @@ interface DisplaySettingsProps {
   onWaterfallToggle: (enabled: boolean) => void;
 }
 
-export default function DisplaySettings({
+function DisplaySettings({
   fftSize, colorMap, waterfallSpeed, displayOffset, fftSmoothing, waterfallEnabled,
   onFftSizeChange, onColorMapChange, onWaterfallSpeedChange, onDisplayOffsetChange, onFftSmoothingChange, onWaterfallToggle,
 }: DisplaySettingsProps) {
@@ -63,3 +64,5 @@ export default function DisplaySettings({
     </>
   );
 }
+
+export default memo(DisplaySettings);

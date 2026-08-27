@@ -17,6 +17,14 @@ pub fn decode_ook(real: &[f32], imag: &[f32], sample_rate: f32, out: &mut Vec<u8
 
     let min_val = smoothed.iter().cloned().fold(f32::INFINITY, f32::min);
     let max_val = smoothed.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+
+    // Noise gate: real OOK has strong on/off contrast; noise and silence don't.
+    // Require the envelope to swing at least 3x above its floor (plus an
+    // absolute floor so all-quiet input can't pass via 0 * 3 = 0).
+    if max_val < 3.0 * min_val + 1e-3 {
+        return; // out was cleared at entry — no events
+    }
+
     let threshold = (min_val + max_val) / 2.0;
 
     let mut current_bit: u8 = if smoothed[0] > threshold { 1 } else { 0 };
@@ -76,7 +84,22 @@ mod tests {
         let imag = vec![0.0f32; 1000];
         let mut out = Vec::new();
         decode_ook(&real, &imag, 100_000.0, &mut out);
-        assert_eq!(out.len(), 17);
-        assert_eq!(out[0], 0);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn test_noise_produces_no_events() {
+        // Deterministic pseudo-noise envelope: low contrast, no on/off keying
+        let n = 4000;
+        let mut real = vec![0.0f32; n];
+        let imag = vec![0.0f32; n];
+        let mut seed = 0x12345678u32;
+        for i in 0..n {
+            seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            real[i] = 0.02 + 0.01 * ((seed >> 8) as f32 / 16777216.0); // 0.02..0.03
+        }
+        let mut out = Vec::new();
+        decode_ook(&real, &imag, 100_000.0, &mut out);
+        assert!(out.is_empty(), "noise must be gated, got {} bytes", out.len());
     }
 }

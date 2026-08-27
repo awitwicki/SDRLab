@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import styles from './ControlPanel.module.css';
 
 interface GainControlsProps {
@@ -5,7 +6,7 @@ interface GainControlsProps {
   onGainChange: (stage: string, value: number) => void;
 }
 
-export default function GainControls({ gains, onGainChange }: GainControlsProps) {
+function GainControls({ gains, onGainChange }: GainControlsProps) {
   return (
     <>
       <div className={styles.row}>
@@ -26,3 +27,5 @@ export default function GainControls({ gains, onGainChange }: GainControlsProps)
     </>
   );
 }
+
+export default memo(GainControls);

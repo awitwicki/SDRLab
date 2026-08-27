@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect, useState } from 'react';
+import { useRef, useCallback, useEffect, useState, useMemo } from 'react';
 import type { DemodMode, WorkerInMessage, WorkerOutMessage, BitEvent } from '../../devices/types';
 
 interface UseDSPOptions {
@@ -6,9 +6,16 @@ interface UseDSPOptions {
   onAudio?: (samples: Float32Array, squelchOpen: boolean) => void;
 }
 
+interface RdsData {
+  pi: number;
+  ps: string;
+  rt: string;
+}
+
 interface UseDSPReturn {
   fftData: Float32Array | null;
   bitEvents: BitEvent[];
+  rdsData: RdsData | null;
   sendIQ: (data: Uint8Array) => void;
   updateConfig: (config: {
     frequency: number;
@@ -30,6 +37,7 @@ export function useDSP(options: UseDSPOptions = {}): UseDSPReturn {
   const workerRef = useRef<Worker | null>(null);
   const [fftData, setFftData] = useState<Float32Array | null>(null);
   const [bitEvents, setBitEvents] = useState<BitEvent[]>([]);
+  const [rdsData, setRdsData] = useState<RdsData | null>(null);
 
   // Refs for hot-path data that shouldn't trigger re-renders
   const fftRef = useRef<Float32Array | null>(null);
@@ -59,11 +67,19 @@ export function useDSP(options: UseDSPOptions = {}): UseDSPReturn {
         case 'bits':
           setBitEvents(prev => [...prev.slice(-100), ...msg.data]);
           break;
+        case 'rds':
+          setRdsData({ pi: msg.pi, ps: msg.ps, rt: msg.rt });
+          break;
         case 'processed':
           // Backpressure: worker finished processing a chunk
           if (inFlightRef.current > 0) inFlightRef.current--;
           break;
       }
+    };
+
+    worker.onerror = (err) => {
+      console.error('[DSP worker] error:', err.message);
+      inFlightRef.current = 0; // acks may be lost; let the stream resume
     };
 
     workerRef.current = worker;
@@ -75,11 +91,12 @@ export function useDSP(options: UseDSPOptions = {}): UseDSPReturn {
   }, []);
 
   const sendIQ = useCallback((data: Uint8Array) => {
+    const worker = workerRef.current;
     // Backpressure: drop IQ chunks when worker is behind (prevents minutes of lag at 20Msps)
-    if (inFlightRef.current >= MAX_IN_FLIGHT) return;
+    if (!worker || inFlightRef.current >= MAX_IN_FLIGHT) return;
     inFlightRef.current++;
     const msg: WorkerInMessage = { type: 'iq', data };
-    workerRef.current?.postMessage(msg, { transfer: [data.buffer] } as unknown as StructuredSerializeOptions);
+    worker.postMessage(msg, { transfer: [data.buffer] } as unknown as StructuredSerializeOptions);
   }, []);
 
   const updateConfig = useCallback((config: {
@@ -97,5 +114,7 @@ export function useDSP(options: UseDSPOptions = {}): UseDSPReturn {
     workerRef.current?.postMessage(msg);
   }, []);
 
-  return { fftData, bitEvents, sendIQ, updateConfig };
+  return useMemo(() => ({
+    fftData, bitEvents, rdsData, sendIQ, updateConfig,
+  }), [fftData, bitEvents, rdsData, sendIQ, updateConfig]);
 }

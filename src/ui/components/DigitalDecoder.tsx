@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, memo } from 'react';
 import type { BitEvent } from '../../devices/types';
 import styles from './DigitalDecoder.module.css';
 
@@ -32,7 +32,7 @@ function estimateBitRate(events: BitEvent[]): number | null {
   return Math.round(1_000_000 / minDuration);
 }
 
-export default function DigitalDecoder({ bits, enabled, onToggle }: DigitalDecoderProps) {
+function DigitalDecoder({ bits, enabled, onToggle }: DigitalDecoderProps) {
   const hexStr = useMemo(() => bitsToHex(bits), [bits]);
   const bitRate = useMemo(() => estimateBitRate(bits), [bits]);
 
@@ -75,3 +75,5 @@ export default function DigitalDecoder({ bits, enabled, onToggle }: DigitalDecod
     </div>
   );
 }
+
+export default memo(DigitalDecoder);

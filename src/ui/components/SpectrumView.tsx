@@ -1,25 +1,17 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
-import type { DemodMode } from '../../devices/types';
 import styles from './SpectrumView.module.css';
+import { chooseTickStep } from './FrequencyAxis';
 
 interface SpectrumViewProps {
   fftData: Float32Array | null;
   frequency: number;
   sampleRate: number;
   tuningOffset: number;
-  demodMode: DemodMode;
+  channelBandwidth: number;
   displayOffset: number;
   fftSmoothing: number;
   onTuningOffsetChange: (offset: number) => void;
   onCenterFrequencyPan: (hz: number) => void;
-}
-
-function getDemodBandwidth(mode: DemodMode): number {
-  switch (mode) {
-    case 'WFM': return 200_000;
-    case 'NFM': return 12_500;
-    case 'AM':  return 10_000;
-  }
 }
 
 const MIN_DB = -80;
@@ -54,6 +46,14 @@ const FRAG_SHADER = `
   }
 `;
 
+function dbLevels(displayOffset: number): number[] {
+  const minDb = MIN_DB + displayOffset;
+  const maxDb = MAX_DB + displayOffset;
+  const levels: number[] = [];
+  for (let db = Math.ceil(minDb / 10) * 10; db < maxDb; db += 10) levels.push(db);
+  return levels;
+}
+
 function createShader(gl: WebGLRenderingContext, type: number, source: string): WebGLShader {
   const shader = gl.createShader(type)!;
   gl.shaderSource(shader, source);
@@ -72,7 +72,7 @@ function createProgram(gl: WebGLRenderingContext, vertSrc: string, fragSrc: stri
 }
 
 export default function SpectrumView({
-  fftData, frequency, sampleRate, tuningOffset, demodMode, displayOffset, fftSmoothing,
+  fftData, frequency, sampleRate, tuningOffset, channelBandwidth, displayOffset, fftSmoothing,
   onTuningOffsetChange, onCenterFrequencyPan,
 }: SpectrumViewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -88,6 +88,7 @@ export default function SpectrumView({
 
   const [mouseFreq, setMouseFreq] = useState<{ freq: number; power: number } | null>(null);
   const smoothBufRef = useRef<Float32Array | null>(null);
+  const binCountRef = useRef(0);
   const dragRef = useRef<{ type: 'cursor' | 'pan'; startX: number; startFreq: number } | null>(null);
   const fpsLabelRef = useRef<HTMLDivElement>(null);
   const fpsCountRef = useRef({ count: 0, lastTime: performance.now() });
@@ -108,7 +109,18 @@ export default function SpectrumView({
       overlayBuffer: gl.createBuffer()!,
     };
 
+    const resize = () => {
+      const rect = canvas.getBoundingClientRect();
+      const w = Math.max(1, Math.round(rect.width * devicePixelRatio));
+      const h = Math.max(1, Math.round(rect.height * devicePixelRatio));
+      if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+    };
+    resize();
+    const ro = new ResizeObserver(resize);
+    ro.observe(canvas);
+
     return () => {
+      ro.disconnect();
       if (glRef.current) {
         gl.deleteProgram(glRef.current.specProgram);
         gl.deleteProgram(glRef.current.overlayProgram);
@@ -146,21 +158,20 @@ export default function SpectrumView({
     if (kernelHalf <= 0) {
       smoothed.set(fftData);
     } else {
+      let sum = 0;
+      let lo = 0, hi = -1; // current window [lo, hi]
       for (let i = 0; i < numBins; i++) {
-        const lo = Math.max(0, i - kernelHalf);
-        const hi = Math.min(numBins - 1, i + kernelHalf);
-        let sum = 0;
-        for (let j = lo; j <= hi; j++) sum += fftData[j]!;
-        smoothed[i] = sum / (hi - lo + 1);
+        const newLo = Math.max(0, i - kernelHalf);
+        const newHi = Math.min(numBins - 1, i + kernelHalf);
+        while (hi < newHi) sum += fftData[++hi]!;
+        while (lo < newLo) sum -= fftData[lo++]!;
+        smoothed[i] = sum / (newHi - newLo + 1);
       }
     }
 
     const { gl, specProgram, overlayProgram, binBuffer, powerBuffer, overlayBuffer } = glRef.current;
     const canvas = canvasRef.current!;
 
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * devicePixelRatio;
-    canvas.height = rect.height * devicePixelRatio;
     gl.viewport(0, 0, canvas.width, canvas.height);
 
     gl.clearColor(0.1, 0.1, 0.18, 1.0);
@@ -173,15 +184,19 @@ export default function SpectrumView({
     const overlayPosLoc = gl.getAttribLocation(overlayProgram, 'a_pos');
     const overlayColorLoc = gl.getUniformLocation(overlayProgram, 'u_color')!;
 
+    const minDb = MIN_DB + displayOffset;
+    const maxDb = MAX_DB + displayOffset;
     const gridVerts: number[] = [];
-    // Horizontal dB lines
-    for (let db = -60; db >= MIN_DB; db -= 20) {
-      const y = ((db - MIN_DB) / (MAX_DB - MIN_DB)) * 2 - 1;
+    // Horizontal dB lines (same levels as the dB-labels JSX)
+    for (const db of dbLevels(displayOffset)) {
+      const y = ((db - minDb) / (maxDb - minDb)) * 2 - 1;
       gridVerts.push(-1, y, 1, y);
     }
-    // Vertical lines every 1/8 of width
-    for (let i = 1; i < 8; i++) {
-      const x = (i / 8) * 2 - 1;
+    // Vertical lines at the same frequencies FrequencyAxis labels
+    const step = chooseTickStep(sampleRate);
+    const lowFreq = frequency - sampleRate / 2;
+    for (let f = Math.ceil(lowFreq / step) * step; f <= frequency + sampleRate / 2; f += step) {
+      const x = ((f - lowFreq) / sampleRate) * 2 - 1;
       gridVerts.push(x, -1, x, 1);
     }
 
@@ -194,14 +209,17 @@ export default function SpectrumView({
 
     // --- Spectrum line ---
     gl.useProgram(specProgram);
-    const bins = new Float32Array(numBins);
-    for (let i = 0; i < numBins; i++) bins[i] = i;
 
     const specBinLoc = gl.getAttribLocation(specProgram, 'a_bin');
     const specPowerLoc = gl.getAttribLocation(specProgram, 'a_power');
 
     gl.bindBuffer(gl.ARRAY_BUFFER, binBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, bins, gl.DYNAMIC_DRAW);
+    if (binCountRef.current !== numBins) {
+      binCountRef.current = numBins;
+      const bins = new Float32Array(numBins);
+      for (let i = 0; i < numBins; i++) bins[i] = i;
+      gl.bufferData(gl.ARRAY_BUFFER, bins, gl.STATIC_DRAW);
+    }
     gl.enableVertexAttribArray(specBinLoc);
     gl.vertexAttribPointer(specBinLoc, 1, gl.FLOAT, false, 0, 0);
 
@@ -217,11 +235,11 @@ export default function SpectrumView({
     gl.drawArrays(gl.LINE_STRIP, 0, numBins);
 
     gl.disable(gl.BLEND);
-  }, [fftData, fftSmoothing, displayOffset]);
+  }, [fftData, fftSmoothing, displayOffset, frequency, sampleRate]);
 
   // Offset to percentage
   const cursorPct = 50 + (tuningOffset / sampleRate) * 100;
-  const bw = getDemodBandwidth(demodMode);
+  const bw = channelBandwidth;
   const bwPct = (bw / sampleRate) * 100;
 
   const CURSOR_HIT = 10; // px hit area for cursor drag
@@ -314,13 +332,7 @@ export default function SpectrumView({
         {(() => {
           const minDb = MIN_DB + displayOffset;
           const maxDb = MAX_DB + displayOffset;
-          const range = maxDb - minDb;
-          const labels: { db: number; pct: number }[] = [];
-          const step = 10;
-          const start = Math.ceil(minDb / step) * step;
-          for (let db = start; db < maxDb; db += step) {
-            labels.push({ db, pct: 100 - ((db - minDb) / range) * 100 });
-          }
+          const labels = dbLevels(displayOffset).map(db => ({ db, pct: 100 - ((db - minDb) / (maxDb - minDb)) * 100 }));
           return labels.map(l => (
             <div key={l.db} className={styles.dbLabel} style={{ top: `${l.pct}%` }}>
               {l.db}

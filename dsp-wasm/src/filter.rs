@@ -42,12 +42,14 @@ impl FirFilter {
         }
     }
 
+    #[allow(dead_code)]
     pub fn reset(&mut self) {
         self.delay_r.fill(0.0);
         self.delay_i.fill(0.0);
         self.pos = 0;
     }
 
+    #[allow(dead_code)]
     pub fn process(&mut self, real_in: &[f32], imag_in: &[f32], real_out: &mut [f32], imag_out: &mut [f32]) {
         for i in 0..real_in.len() {
             // Write to both halves of the double buffer
@@ -99,28 +101,26 @@ impl FirFilter {
             (sum_r, sum_i)
         }
     }
-}
 
-/// Decimate: filter then downsample. Uses pre-allocated output buffers.
-pub fn decimate(
-    real_in: &[f32], imag_in: &[f32], factor: usize, filter: &mut FirFilter,
-    real_out: &mut Vec<f32>, imag_out: &mut Vec<f32>,
-) {
-    let n = real_in.len();
-    // Resize output buffers (no alloc if already large enough)
-    let out_len = n / factor;
-    real_out.resize(out_len, 0.0);
-    imag_out.resize(out_len, 0.0);
-
-    // Process directly into decimated output — skip filter for non-output samples
-    // For simplicity, filter all then pick. Use a scratch buffer in the filter.
-    // TODO: optimize to only compute output samples
-    let mut filtered_r = vec![0.0f32; n];
-    let mut filtered_i = vec![0.0f32; n];
-    filter.process(real_in, imag_in, &mut filtered_r, &mut filtered_i);
-    for i in 0..out_len {
-        real_out[i] = filtered_r[i * factor];
-        imag_out[i] = filtered_i[i * factor];
+    /// Filter and decimate in one pass: only convolves at the decimation-phase
+    /// samples instead of filtering every input sample then discarding most of
+    /// them. Zero per-call allocation — reuses the caller's output Vecs.
+    pub fn process_decim(&mut self, real_in: &[f32], imag_in: &[f32], factor: usize,
+                         real_out: &mut Vec<f32>, imag_out: &mut Vec<f32>) {
+        real_out.clear();
+        imag_out.clear();
+        for i in 0..real_in.len() {
+            self.delay_r[self.pos] = real_in[i];
+            self.delay_r[self.pos + self.num_taps] = real_in[i];
+            self.delay_i[self.pos] = imag_in[i];
+            self.delay_i[self.pos + self.num_taps] = imag_in[i];
+            self.pos = (self.pos + 1) % self.num_taps;
+            if i % factor == 0 {
+                let (sr, si) = self.convolve();
+                real_out.push(sr);
+                imag_out.push(si);
+            }
+        }
     }
 }
 
@@ -159,7 +159,25 @@ mod tests {
         let mut filter = FirFilter::new(taps);
         let mut r = Vec::new();
         let mut i = Vec::new();
-        decimate(&vec![1.0f32; 100], &vec![0.0f32; 100], 4, &mut filter, &mut r, &mut i);
+        filter.process_decim(&vec![1.0f32; 100], &vec![0.0f32; 100], 4, &mut r, &mut i);
         assert_eq!(r.len(), 25);
+    }
+
+    #[test]
+    fn test_process_decim_matches_filter_then_pick() {
+        let taps = design_low_pass(5000.0, 48000.0, 31);
+        let mut f1 = FirFilter::new(taps.clone());
+        let mut f2 = FirFilter::new(taps);
+        let input: Vec<f32> = (0..1000).map(|i| ((i * 7) % 13) as f32 - 6.0).collect();
+        let zeros = vec![0.0f32; 1000];
+        // reference: full filter then pick every 4th
+        let (mut fr, mut fi) = (vec![0.0f32; 1000], vec![0.0f32; 1000]);
+        f1.process(&input, &zeros, &mut fr, &mut fi);
+        let expect: Vec<f32> = (0..250).map(|i| fr[i * 4]).collect();
+        // new path
+        let (mut dr, mut di) = (Vec::new(), Vec::new());
+        f2.process_decim(&input, &zeros, 4, &mut dr, &mut di);
+        assert_eq!(dr.len(), 250);
+        for i in 0..250 { assert!((dr[i] - expect[i]).abs() < 1e-5, "mismatch at {i}"); }
     }
 }

@@ -51,14 +51,15 @@ pub fn fft(real: &mut [f32], imag: &mut [f32]) {
     }
 }
 
-pub fn power_spectrum_shifted(real: &[f32], imag: &[f32], out: &mut Vec<f32>) {
+pub fn power_spectrum_shifted(real: &[f32], imag: &[f32], norm: f32, out: &mut Vec<f32>) {
     let n = real.len();
     out.resize(n, 0.0);
     let half = n / 2;
+    let inv = 1.0 / norm.max(1e-20);
     for i in 0..n {
         let src = (i + half) % n;
         let mag2 = real[src] * real[src] + imag[src] * imag[src];
-        out[i] = 10.0 * (mag2 + 1e-20).log10();
+        out[i] = 10.0 * (mag2 * inv + 1e-20).log10();
     }
 }
 

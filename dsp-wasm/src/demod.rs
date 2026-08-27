@@ -36,9 +36,12 @@ impl DeEmphasis {
         let a = dt / (tau + dt);
         Self { a, b: 1.0 - a, prev: 0.0 }
     }
+    #[allow(dead_code)]
+    pub fn a(&self) -> f32 { self.a }
     pub fn process(&mut self, samples: &mut [f32]) {
         for s in samples.iter_mut() { self.prev = self.a * *s + self.b * self.prev; *s = self.prev; }
     }
+    #[allow(dead_code)]
     pub fn reset(&mut self) { self.prev = 0.0; }
 }
 

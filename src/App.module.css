@@ -22,11 +22,14 @@
 
 .spectrum {
   flex: 0 0 200px;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .spectrumExpanded {
   flex: 1;
   min-height: 200px;
+  overflow: hidden;
 }
 
 .freqAxis {
@@ -34,14 +37,20 @@
   border-bottom: 1px solid var(--border);
 }
 
+.freqAxis[data-resizable="true"] {
+  cursor: ns-resize;
+  touch-action: none;
+}
+
 .waterfall {
   flex: 1;
   min-height: 100px;
+  overflow: hidden;
 }
 
 .decoder {
-  flex: 0 0 auto;
-  max-height: 250px;
+  flex: 0 0 240px;
+  overflow: hidden;
   border-top: 1px solid var(--border);
 }
 

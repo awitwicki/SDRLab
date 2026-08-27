@@ -151,3 +151,11 @@
   background: var(--bg-input);
   min-width: 70px;
 }
+
+.rdsPs {
+  font-family: var(--font-mono);
+  color: var(--success);
+  font-size: 13px;
+  margin-left: 8px;
+  white-space: pre;
+}

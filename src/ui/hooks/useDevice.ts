@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useMemo } from 'react';
 import { HackRF } from '../../devices/hackrf';
 import type { SDRDevice, DeviceInfo } from '../../devices/types';
 
@@ -66,5 +66,7 @@ export function useDevice(): UseDeviceReturn {
     await deviceRef.current.setGain(stage, value);
   }, []);
 
-  return { connected, running, deviceInfo, connect, disconnect, startRx, stop, setFrequency, setSampleRate, setGain };
+  return useMemo(() => ({
+    connected, running, deviceInfo, connect, disconnect, startRx, stop, setFrequency, setSampleRate, setGain,
+  }), [connected, running, deviceInfo, connect, disconnect, startRx, stop, setFrequency, setSampleRate, setGain]);
 }

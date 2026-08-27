@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect, useState } from 'react';
+import { useRef, useCallback, useEffect, useState, useMemo } from 'react';
 import { AudioEngine } from '../../audio/engine';
 import { AudioRecorder } from '../../audio/recorder';
 
@@ -14,6 +14,7 @@ interface UseAudioReturn {
   startRecording: () => void;
   stopRecording: () => void;
   destroy: () => Promise<void>;
+  flush: () => void;
 }
 
 export function useAudio(): UseAudioReturn {
@@ -21,6 +22,8 @@ export function useAudio(): UseAudioReturn {
   const recorderRef = useRef<AudioRecorder | null>(null);
   const [initialized, setInitialized] = useState(false);
   const [volume, setVolumeState] = useState(0.5);
+  const volumeRef = useRef(volume);
+  volumeRef.current = volume;
   const [recording, setRecording] = useState(false);
   const [bufferLevel, setBufferLevel] = useState(0);
   const [bufferSize, setBufferSize] = useState(0);
@@ -40,6 +43,7 @@ export function useAudio(): UseAudioReturn {
       setBufferSize(size);
     });
     engineRef.current = engine;
+    engine.setVolume(volumeRef.current);
     recorderRef.current = new AudioRecorder();
     setInitialized(true);
   }, []);
@@ -72,5 +76,11 @@ export function useAudio(): UseAudioReturn {
     setInitialized(false);
   }, []);
 
-  return { initialized, volume, recording, bufferLevel, bufferSize, init, setVolume, pushAudio, startRecording, stopRecording, destroy };
+  const flush = useCallback(() => {
+    engineRef.current?.flush();
+  }, []);
+
+  return useMemo(() => ({
+    initialized, volume, recording, bufferLevel, bufferSize, init, setVolume, pushAudio, startRecording, stopRecording, destroy, flush,
+  }), [initialized, volume, recording, bufferLevel, bufferSize, init, setVolume, pushAudio, startRecording, stopRecording, destroy, flush]);
 }

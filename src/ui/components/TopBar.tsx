@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect, memo } from 'react';
 import type { DemodMode } from '../../devices/types';
 import styles from './TopBar.module.css';
 
@@ -16,6 +16,7 @@ interface TopBarProps {
   onFrequencyChange: (hz: number) => void;
   onDemodModeChange: (mode: DemodMode) => void;
   onSampleRateChange: (hz: number) => void;
+  rdsPs?: string;
 }
 
 function parseFrequency(input: string): number | null {
@@ -43,26 +44,45 @@ const SAMPLE_RATES = [2_000_000, 4_000_000, 8_000_000, 10_000_000, 16_000_000, 2
  *  Scroll wheel → ±1 at that position. */
 function FrequencyDigits({ frequency, onChange }: Readonly<{ frequency: number; onChange: (hz: number) => void }>) {
   const hz = Math.round(frequency);
-  const str = Math.max(0, hz).toString().padStart(10, '0');
+  const str = Math.max(0, hz).toString().padStart(10, '0').slice(-10);
   const firstNonZero = str.search(/[^0]/);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const stateRef = useRef({ hz, onChange });
+  stateRef.current = { hz, onChange };
+
+  const placeOf = (digitIdx: number) => Math.pow(10, 9 - digitIdx);
+  const step = (digitIdx: number, dir: 1 | -1) => {
+    const { hz, onChange } = stateRef.current;
+    onChange(Math.max(0, hz + dir * placeOf(digitIdx)));
+  };
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      const idx = (e.target as HTMLElement).dataset['digit'];
+      if (idx === undefined) return;
+      e.preventDefault(); // works: listener registered with passive: false
+      step(Number(idx), e.deltaY < 0 ? 1 : -1);
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
 
   const handleClick = (digitIdx: number, e: React.MouseEvent) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    const isTop = e.clientY < rect.top + rect.height / 2;
-    const place = Math.pow(10, 9 - digitIdx);
-    onChange(Math.max(0, hz + (isTop ? place : -place)));
+    step(digitIdx, e.clientY < rect.top + rect.height / 2 ? 1 : -1);
   };
 
   const handleContextMenu = (digitIdx: number, e: React.MouseEvent) => {
     e.preventDefault();
-    const place = Math.pow(10, 9 - digitIdx);
-    onChange(Math.max(0, Math.floor(hz / (place * 10)) * (place * 10)));
+    const place = placeOf(digitIdx);
+    stateRef.current.onChange(Math.max(0, Math.floor(hz / (place * 10)) * (place * 10)));
   };
 
-  const handleWheel = (digitIdx: number, e: React.WheelEvent) => {
-    e.preventDefault();
-    const place = Math.pow(10, 9 - digitIdx);
-    onChange(Math.max(0, hz + (e.deltaY < 0 ? place : -place)));
+  const handleKeyDown = (digitIdx: number, e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowUp') { e.preventDefault(); step(digitIdx, 1); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); step(digitIdx, -1); }
   };
 
   const elements: React.ReactNode[] = [];
@@ -74,10 +94,17 @@ function FrequencyDigits({ frequency, onChange }: Readonly<{ frequency: number; 
     elements.push(
       <span
         key={i}
+        data-digit={i}
+        tabIndex={0}
+        role="spinbutton"
+        aria-label={`${placeOf(i).toLocaleString()} Hz digit`}
+        aria-valuenow={Number(str[i])}
+        aria-valuemin={0}
+        aria-valuemax={9}
         className={`${styles.freqDigit} ${isDim ? styles.freqDigitDim : ''}`}
         onClick={e => handleClick(i, e)}
         onContextMenu={e => handleContextMenu(i, e)}
-        onWheel={e => handleWheel(i, e)}
+        onKeyDown={e => handleKeyDown(i, e)}
       >
         {str[i]}
       </span>
@@ -85,17 +112,17 @@ function FrequencyDigits({ frequency, onChange }: Readonly<{ frequency: number; 
   }
 
   return (
-    <div className={styles.freqDigits}>
+    <div ref={containerRef} className={styles.freqDigits}>
       {elements}
       <span className={styles.freqUnit}>Hz</span>
     </div>
   );
 }
 
-export default function TopBar({
+function TopBar({
   connected, running, frequency, tuningOffset, sampleRate, demodMode,
   onConnect, onDisconnect, onStart, onStop,
-  onFrequencyChange, onDemodModeChange, onSampleRateChange,
+  onFrequencyChange, onDemodModeChange, onSampleRateChange, rdsPs,
 }: Readonly<TopBarProps>) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
@@ -183,6 +210,8 @@ export default function TopBar({
         ))}
       </select>
 
+      {rdsPs && <span className={styles.rdsPs} title="RDS station name">{rdsPs}</span>}
+
       <div className={styles.spacer} />
 
       <div className={styles.status}>
@@ -192,3 +221,5 @@ export default function TopBar({
     </div>
   );
 }
+
+export default memo(TopBar);

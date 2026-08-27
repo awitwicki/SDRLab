@@ -45,6 +45,10 @@ export class AudioEngine {
     this.workletNode?.port.postMessage({ type: 'audio', samples, squelchOpen });
   }
 
+  flush(): void {
+    this.workletNode?.port.postMessage({ type: 'flush' });
+  }
+
   setVolume(value: number): void {
     this._volume = Math.max(0, Math.min(1, value));
     if (this.gainNode) {

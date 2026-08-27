@@ -65,4 +65,5 @@ export type WorkerOutMessage =
   | { type: 'fft'; bins: Float32Array }
   | { type: 'audio'; samples: Float32Array; squelchOpen: boolean }
   | { type: 'bits'; data: BitEvent[] }
+  | { type: 'rds'; pi: number; ps: string; rt: string }
   | { type: 'processed' };
