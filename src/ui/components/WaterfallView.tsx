@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect, useCallback, useState } from 'react';
 import type { ColorMap } from '../../devices/types';
 import styles from './WaterfallView.module.css';
 
@@ -82,6 +82,10 @@ export default function WaterfallView({
 
   const dragRef = useRef<{ type: 'cursor' | 'pan'; startX: number; startVal: number } | null>(null);
   const rowBufRef = useRef<Uint8Array | null>(null);
+  // The tuning line lives permanently on the spectrum; here it only appears
+  // while the pointer is over it or inside the channel band, so it doesn't
+  // draw a standing stripe across the waterfall history.
+  const [cursorVisible, setCursorVisible] = useState(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -199,6 +203,16 @@ export default function WaterfallView({
     return Math.abs(clientX - cursorX) < CURSOR_HIT;
   }, [cursorPct]);
 
+  // Reveal zone: the line's grab area, or anywhere in the channel band. The
+  // band can be narrower than CURSOR_HIT at wide sample rates, so it's a union
+  // rather than either one alone.
+  const isInCursorZone = useCallback((clientX: number) => {
+    const rect = containerRef.current!.getBoundingClientRect();
+    const cursorX = rect.left + (cursorPct / 100) * rect.width;
+    const dx = Math.abs(clientX - cursorX);
+    return dx < CURSOR_HIT || dx <= ((bwPct / 100) * rect.width) / 2;
+  }, [cursorPct, bwPct]);
+
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (isNearCursor(e.clientX)) {
       dragRef.current = { type: 'cursor', startX: e.clientX, startVal: tuningOffset };
@@ -228,18 +242,25 @@ export default function WaterfallView({
   const handleMouseUp = useCallback((e: React.MouseEvent) => {
     if (dragRef.current) {
       const dx = Math.abs(e.clientX - dragRef.current.startX);
-      if (dx <= 3 && dragRef.current.type !== 'cursor') {
+      const wasCursor = dragRef.current.type === 'cursor';
+      const tuned = dx <= 3 && !wasCursor;
+      if (tuned) {
         const rect = containerRef.current!.getBoundingClientRect();
         const x = (e.clientX - rect.left) / rect.width;
         onTuningOffsetChange((x - 0.5) * sampleRate);
       }
       dragRef.current = null;
       (e.currentTarget as HTMLDivElement).style.cursor = 'crosshair';
+      // After a tune or a cursor drag the line has followed the pointer, so
+      // it's under it by definition; a pan leaves cursorPct untouched and can
+      // be hit-tested directly.
+      setCursorVisible(wasCursor || tuned || isInCursorZone(e.clientX));
     }
-  }, [sampleRate, onTuningOffsetChange]);
+  }, [sampleRate, onTuningOffsetChange, isInCursorZone]);
 
   const handleMouseLeave = useCallback(() => {
     dragRef.current = null;
+    setCursorVisible(false);
   }, []);
 
   const handleCursorStyle = useCallback((e: React.MouseEvent) => {
@@ -252,13 +273,21 @@ export default function WaterfallView({
       ref={containerRef}
       className={styles.container}
       onMouseDown={handleMouseDown}
-      onMouseMove={e => { handleMouseMove(e); if (!dragRef.current) handleCursorStyle(e); }}
+      onMouseMove={e => {
+        const draggingCursor = dragRef.current?.type === 'cursor';
+        handleMouseMove(e);
+        if (!dragRef.current) handleCursorStyle(e);
+        setCursorVisible(draggingCursor || isInCursorZone(e.clientX));
+      }}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseLeave}
     >
       <canvas ref={canvasRef} className={styles.canvas} />
       <div className={styles.bandwidth} style={{ left: `${cursorPct - bwPct / 2}%`, width: `${bwPct}%` }} />
-      <div className={styles.cursor} style={{ left: `${cursorPct}%` }} />
+      <div
+        className={cursorVisible ? `${styles.cursor} ${styles.cursorVisible}` : styles.cursor}
+        style={{ left: `${cursorPct}%` }}
+      />
       {!fftData && <div className={styles.hint}>drag to pan &bull; click to tune</div>}
     </div>
   );
