@@ -28,7 +28,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .cursor {
+  .cursor,
+  .bandwidth {
     transition: none;
   }
 }
@@ -40,7 +41,13 @@
   background: rgba(0, 212, 255, 0.05);
   border-left: 1px dashed rgba(0, 212, 255, 0.3);
   border-right: 1px dashed rgba(0, 212, 255, 0.3);
+  opacity: 0;
+  transition: opacity 0.12s ease;
   pointer-events: none;
+}
+
+.bandwidthVisible {
+  opacity: 1;
 }
 
 .hint {

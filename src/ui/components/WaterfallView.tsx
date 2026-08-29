@@ -82,10 +82,10 @@ export default function WaterfallView({
 
   const dragRef = useRef<{ type: 'cursor' | 'pan'; startX: number; startVal: number } | null>(null);
   const rowBufRef = useRef<Uint8Array | null>(null);
-  // The tuning line lives permanently on the spectrum; here it only appears
-  // while the pointer is over it or inside the channel band, so it doesn't
-  // draw a standing stripe across the waterfall history.
-  const [cursorVisible, setCursorVisible] = useState(false);
+  // The tuning line and channel band live permanently on the spectrum; here
+  // they only appear while the pointer is over them, so they don't draw
+  // standing stripes across the waterfall history.
+  const [overlayVisible, setOverlayVisible] = useState(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -254,13 +254,13 @@ export default function WaterfallView({
       // After a tune or a cursor drag the line has followed the pointer, so
       // it's under it by definition; a pan leaves cursorPct untouched and can
       // be hit-tested directly.
-      setCursorVisible(wasCursor || tuned || isInCursorZone(e.clientX));
+      setOverlayVisible(wasCursor || tuned || isInCursorZone(e.clientX));
     }
   }, [sampleRate, onTuningOffsetChange, isInCursorZone]);
 
   const handleMouseLeave = useCallback(() => {
     dragRef.current = null;
-    setCursorVisible(false);
+    setOverlayVisible(false);
   }, []);
 
   const handleCursorStyle = useCallback((e: React.MouseEvent) => {
@@ -277,15 +277,18 @@ export default function WaterfallView({
         const draggingCursor = dragRef.current?.type === 'cursor';
         handleMouseMove(e);
         if (!dragRef.current) handleCursorStyle(e);
-        setCursorVisible(draggingCursor || isInCursorZone(e.clientX));
+        setOverlayVisible(draggingCursor || isInCursorZone(e.clientX));
       }}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseLeave}
     >
       <canvas ref={canvasRef} className={styles.canvas} />
-      <div className={styles.bandwidth} style={{ left: `${cursorPct - bwPct / 2}%`, width: `${bwPct}%` }} />
       <div
-        className={cursorVisible ? `${styles.cursor} ${styles.cursorVisible}` : styles.cursor}
+        className={overlayVisible ? `${styles.bandwidth} ${styles.bandwidthVisible}` : styles.bandwidth}
+        style={{ left: `${cursorPct - bwPct / 2}%`, width: `${bwPct}%` }}
+      />
+      <div
+        className={overlayVisible ? `${styles.cursor} ${styles.cursorVisible}` : styles.cursor}
         style={{ left: `${cursorPct}%` }}
       />
       {!fftData && <div className={styles.hint}>drag to pan &bull; click to tune</div>}

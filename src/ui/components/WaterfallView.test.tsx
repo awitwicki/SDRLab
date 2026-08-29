@@ -26,10 +26,11 @@ function renderWaterfall(overrides: Partial<React.ComponentProps<typeof Waterfal
   );
   const root = container.firstElementChild as HTMLElement;
   const cursor = container.querySelector('div[class*="cursor"]') as HTMLElement;
-  return { root, cursor };
+  const band = container.querySelector('div[class*="bandwidth"]') as HTMLElement;
+  return { root, cursor, band };
 }
 
-const isVisible = (el: HTMLElement) => el.className.includes('cursorVisible');
+const isVisible = (el: HTMLElement) => /cursorVisible|bandwidthVisible/.test(el.className);
 
 beforeEach(() => {
   // jsdom has no WebGL; the component already no-ops when getContext returns
@@ -48,26 +49,30 @@ afterEach(() => {
 
 describe('WaterfallView tuning line', () => {
   it('is hidden until the pointer arrives', () => {
-    const { cursor } = renderWaterfall();
+    const { cursor, band } = renderWaterfall();
     expect(isVisible(cursor)).toBe(false);
+    expect(isVisible(band)).toBe(false);
   });
 
   it('appears when hovering the line itself', () => {
-    const { root, cursor } = renderWaterfall();
+    const { root, cursor, band } = renderWaterfall();
     fireEvent.mouseMove(root, { clientX: CURSOR_X });
     expect(isVisible(cursor)).toBe(true);
+    expect(isVisible(band)).toBe(true);
   });
 
   it('appears when hovering inside the channel band but off the line', () => {
-    const { root, cursor } = renderWaterfall();
+    const { root, cursor, band } = renderWaterfall();
     fireEvent.mouseMove(root, { clientX: CURSOR_X + 40 });
     expect(isVisible(cursor)).toBe(true);
+    expect(isVisible(band)).toBe(true);
   });
 
   it('stays hidden outside the band', () => {
-    const { root, cursor } = renderWaterfall();
+    const { root, cursor, band } = renderWaterfall();
     fireEvent.mouseMove(root, { clientX: CURSOR_X + 200 });
     expect(isVisible(cursor)).toBe(false);
+    expect(isVisible(band)).toBe(false);
   });
 
   it('still reveals on the line when the band is narrower than the grab area', () => {
@@ -80,11 +85,13 @@ describe('WaterfallView tuning line', () => {
   });
 
   it('hides again when the pointer leaves', () => {
-    const { root, cursor } = renderWaterfall();
+    const { root, cursor, band } = renderWaterfall();
     fireEvent.mouseMove(root, { clientX: CURSOR_X });
     expect(isVisible(cursor)).toBe(true);
+    expect(isVisible(band)).toBe(true);
     fireEvent.mouseLeave(root);
     expect(isVisible(cursor)).toBe(false);
+    expect(isVisible(band)).toBe(false);
   });
 
   it('stays visible while dragging the line beyond the reveal zone', () => {
