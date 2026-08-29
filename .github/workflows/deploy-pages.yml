@@ -47,11 +47,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build WASM
-        run: npm run wasm:build
-
+      # Must go through npm, not bare `tsc`/`vite`: node_modules/.bin is not on
+      # PATH in a run: step, and the runner image has a *global* tsc that would
+      # silently be used instead of the project's. npm run puts the local
+      # binaries first. `prebuild` builds the WASM package automatically.
       - name: Type check and build
-        run: tsc && vite build
+        run: npm run build
         env:
           GITHUB_PAGES: true
 
