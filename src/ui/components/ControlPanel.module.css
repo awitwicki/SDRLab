@@ -7,6 +7,16 @@
   flex-direction: column;
 }
 
+/* Stacked under the plots rather than docked beside them: full width, and
+   sized by its content so the page scrolls instead of the panel. */
+@media (max-width: 640px) {
+  .panel {
+    width: 100%;
+    height: auto;
+    overflow-y: visible;
+  }
+}
+
 .collapsed {
   width: 32px;
   height: 100%;

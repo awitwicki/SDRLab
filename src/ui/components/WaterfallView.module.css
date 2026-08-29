@@ -3,6 +3,9 @@
   height: 100%;
   position: relative;
   background: #000;
+  /* Horizontal drags pan the frequency; vertical swipes are left to the
+     browser so the stacked mobile layout can still be scrolled. */
+  touch-action: pan-y;
 }
 
 .canvas {

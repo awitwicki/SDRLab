@@ -3,6 +3,8 @@ import type { DemodMode, ColorMap } from './devices/types';
 import { useDevice } from './ui/hooks/useDevice';
 import { useDSP } from './ui/hooks/useDSP';
 import { useAudio } from './ui/hooks/useAudio';
+import useMediaQuery from './ui/hooks/useMediaQuery';
+import useFullscreen from './ui/hooks/useFullscreen';
 import TopBar from './ui/components/TopBar';
 import SpectrumView from './ui/components/SpectrumView';
 import WaterfallView from './ui/components/WaterfallView';
@@ -247,6 +249,11 @@ export default function App() {
   }, []);
 
   const handlePanelToggle = useCallback(() => setPanelOpen(p => !p), []);
+
+  // Below this width the panel is stacked in the page flow rather than docked
+  // to the side, so it is always shown and cannot be collapsed away.
+  const isNarrow = useMediaQuery('(max-width: 640px)');
+  const fullscreen = useFullscreen();
   const handleOokToggle = useCallback(() => setOokEnabled(false), []);
   const handleOokChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => setOokEnabled(e.target.checked), []);
 
@@ -290,13 +297,18 @@ export default function App() {
           onDemodModeChange={handleDemodModeChange}
           onSampleRateChange={handleSampleRateChange}
           rdsPs={dsp.rdsData?.ps}
+          isFullscreen={fullscreen.isFullscreen}
+          fullscreenSupported={fullscreen.supported}
+          onFullscreenToggle={fullscreen.toggle}
         />
       </div>
 
       <div className={styles.main} ref={mainRef}>
         <div
           className={waterfallEnabled ? styles.spectrum : styles.spectrumExpanded}
-          style={waterfallEnabled ? { flex: `0 0 ${spectrumHeight}px` } : undefined}
+          // The dragged pixel height would overflow the short stacked layout,
+          // so narrow screens let CSS share the space instead.
+          style={waterfallEnabled && !isNarrow ? { flex: `0 0 ${spectrumHeight}px` } : undefined}
         >
           <SpectrumView
             fftData={dsp.fftData}
@@ -350,8 +362,8 @@ export default function App() {
         )}
       </div>
 
-      <div className={panelOpen ? styles.panel : styles.panelCollapsed}>
-        <ControlPanel open={panelOpen} onToggle={handlePanelToggle}>
+      <div className={panelOpen || isNarrow ? styles.panel : styles.panelCollapsed}>
+        <ControlPanel open={panelOpen} onToggle={handlePanelToggle} collapsible={!isNarrow}>
           <AccordionSection title="Gain">
             <GainControls gains={gains} onGainChange={handleGainChange} />
           </AccordionSection>

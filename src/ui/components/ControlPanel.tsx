@@ -4,10 +4,16 @@ import styles from './ControlPanel.module.css';
 interface ControlPanelProps {
   open: boolean;
   onToggle: () => void;
+  /** False on narrow screens, where the panel is stacked in the page flow and
+   *  collapsing it would leave no way back to the settings. */
+  collapsible?: boolean;
   children: ReactNode;
 }
 
-export default function ControlPanel({ open, onToggle, children }: ControlPanelProps) {
+export default function ControlPanel({ open, onToggle, collapsible = true, children }: ControlPanelProps) {
+  if (!collapsible) {
+    return <div className={styles.panel}>{children}</div>;
+  }
   if (!open) {
     return (
       <div className={styles.collapsed}>

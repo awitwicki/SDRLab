@@ -256,16 +256,18 @@ export default function SpectrumView({
     return Math.abs(clientX - cursorX) < CURSOR_HIT;
   }, [cursorPct]);
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
     if (isNearCursor(e.clientX)) {
       dragRef.current = { type: 'cursor', startX: e.clientX, startFreq: tuningOffset };
     } else {
       dragRef.current = { type: 'pan', startX: e.clientX, startFreq: frequency };
     }
+    // Keep receiving moves once the finger slides outside the element.
+    e.currentTarget.setPointerCapture(e.pointerId);
     e.preventDefault();
   }, [isNearCursor, tuningOffset, frequency]);
 
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
     // Update readout
     if (smoothBufRef.current && containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
@@ -293,7 +295,7 @@ export default function SpectrumView({
     }
   }, [fftData, frequency, sampleRate, onTuningOffsetChange, onCenterFrequencyPan]);
 
-  const handleMouseUp = useCallback((e: React.MouseEvent) => {
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
     if (dragRef.current) {
       const dx = Math.abs(e.clientX - dragRef.current.startX);
       if (dx <= 3 && dragRef.current.type !== 'cursor') {
@@ -304,12 +306,12 @@ export default function SpectrumView({
     }
   }, [xToOffset, onTuningOffsetChange]);
 
-  const handleMouseLeave = useCallback(() => {
+  const handlePointerLeave = useCallback(() => {
     setMouseFreq(null);
     dragRef.current = null;
   }, []);
 
-  const getCursor = useCallback((e: React.MouseEvent): string => {
+  const getCursor = useCallback((e: React.PointerEvent): string => {
     if (dragRef.current?.type === 'pan') return 'grabbing';
     if (dragRef.current?.type === 'cursor') return 'col-resize';
     if (isNearCursor(e.clientX)) return 'col-resize';
@@ -320,10 +322,10 @@ export default function SpectrumView({
     <div
       ref={containerRef}
       className={styles.container}
-      onMouseDown={handleMouseDown}
-      onMouseMove={e => { handleMouseMove(e); (e.currentTarget as HTMLDivElement).style.cursor = getCursor(e); }}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseLeave}
+      onPointerDown={handlePointerDown}
+      onPointerMove={e => { handlePointerMove(e); (e.currentTarget as HTMLDivElement).style.cursor = getCursor(e); }}
+      onPointerUp={handlePointerUp}
+      onPointerLeave={handlePointerLeave}
     >
       <canvas ref={canvasRef} className={styles.canvas} />
 

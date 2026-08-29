@@ -9,6 +9,8 @@ const WIDTH = 1000;
 const CURSOR_X = 500;
 
 function renderWaterfall(overrides: Partial<React.ComponentProps<typeof WaterfallView>> = {}) {
+  const onTuningOffsetChange = vi.fn();
+  const onCenterFrequencyPan = vi.fn();
   const { container } = render(
     <WaterfallView
       fftData={null}
@@ -19,16 +21,18 @@ function renderWaterfall(overrides: Partial<React.ComponentProps<typeof Waterfal
       channelBandwidth={200e3}
       waterfallSpeed={1}
       displayOffset={0}
-      onTuningOffsetChange={vi.fn()}
-      onCenterFrequencyPan={vi.fn()}
+      onTuningOffsetChange={onTuningOffsetChange}
+      onCenterFrequencyPan={onCenterFrequencyPan}
       {...overrides}
     />,
   );
   const root = container.firstElementChild as HTMLElement;
   const cursor = container.querySelector('div[class*="cursor"]') as HTMLElement;
   const band = container.querySelector('div[class*="bandwidth"]') as HTMLElement;
-  return { root, cursor, band };
+  return { root, cursor, band, onTuningOffsetChange, onCenterFrequencyPan };
 }
+
+const touch = { pointerType: 'touch', pointerId: 1 };
 
 const isVisible = (el: HTMLElement) => /cursorVisible|bandwidthVisible/.test(el.className);
 
@@ -56,21 +60,21 @@ describe('WaterfallView tuning line', () => {
 
   it('appears when hovering the line itself', () => {
     const { root, cursor, band } = renderWaterfall();
-    fireEvent.mouseMove(root, { clientX: CURSOR_X });
+    fireEvent.pointerMove(root, { clientX: CURSOR_X });
     expect(isVisible(cursor)).toBe(true);
     expect(isVisible(band)).toBe(true);
   });
 
   it('appears when hovering inside the channel band but off the line', () => {
     const { root, cursor, band } = renderWaterfall();
-    fireEvent.mouseMove(root, { clientX: CURSOR_X + 40 });
+    fireEvent.pointerMove(root, { clientX: CURSOR_X + 40 });
     expect(isVisible(cursor)).toBe(true);
     expect(isVisible(band)).toBe(true);
   });
 
   it('stays hidden outside the band', () => {
     const { root, cursor, band } = renderWaterfall();
-    fireEvent.mouseMove(root, { clientX: CURSOR_X + 200 });
+    fireEvent.pointerMove(root, { clientX: CURSOR_X + 200 });
     expect(isVisible(cursor)).toBe(false);
     expect(isVisible(band)).toBe(false);
   });
@@ -78,34 +82,66 @@ describe('WaterfallView tuning line', () => {
   it('still reveals on the line when the band is narrower than the grab area', () => {
     // 2 kHz of a 2 MHz span is well under a pixel, so only the grab area applies.
     const { root, cursor } = renderWaterfall({ channelBandwidth: 2e3 });
-    fireEvent.mouseMove(root, { clientX: CURSOR_X + 5 });
+    fireEvent.pointerMove(root, { clientX: CURSOR_X + 5 });
     expect(isVisible(cursor)).toBe(true);
-    fireEvent.mouseMove(root, { clientX: CURSOR_X + 40 });
+    fireEvent.pointerMove(root, { clientX: CURSOR_X + 40 });
     expect(isVisible(cursor)).toBe(false);
   });
 
   it('hides again when the pointer leaves', () => {
     const { root, cursor, band } = renderWaterfall();
-    fireEvent.mouseMove(root, { clientX: CURSOR_X });
+    fireEvent.pointerMove(root, { clientX: CURSOR_X });
     expect(isVisible(cursor)).toBe(true);
     expect(isVisible(band)).toBe(true);
-    fireEvent.mouseLeave(root);
+    fireEvent.pointerLeave(root);
     expect(isVisible(cursor)).toBe(false);
     expect(isVisible(band)).toBe(false);
   });
 
   it('stays visible while dragging the line beyond the reveal zone', () => {
     const { root, cursor } = renderWaterfall();
-    fireEvent.mouseDown(root, { clientX: CURSOR_X });
-    fireEvent.mouseMove(root, { clientX: CURSOR_X + 300 });
+    fireEvent.pointerDown(root, { clientX: CURSOR_X });
+    fireEvent.pointerMove(root, { clientX: CURSOR_X + 300 });
     expect(isVisible(cursor)).toBe(true);
   });
 
   it('reveals the line after a click-to-tune', () => {
     const { root, cursor } = renderWaterfall();
     const x = CURSOR_X + 300;
-    fireEvent.mouseDown(root, { clientX: x });
-    fireEvent.mouseUp(root, { clientX: x });
+    fireEvent.pointerDown(root, { clientX: x });
+    fireEvent.pointerUp(root, { clientX: x });
     expect(isVisible(cursor)).toBe(true);
+  });
+});
+
+describe('WaterfallView touch input', () => {
+  it('tunes where a finger taps', () => {
+    const { root, onTuningOffsetChange } = renderWaterfall();
+    // x=750 of 1000px is 3/4 across a 2 MHz span, i.e. +500 kHz of centre.
+    fireEvent.pointerDown(root, { ...touch, clientX: 750 });
+    fireEvent.pointerUp(root, { ...touch, clientX: 750 });
+    expect(onTuningOffsetChange).toHaveBeenCalledWith(500e3);
+  });
+
+  it('pans the centre frequency on a horizontal finger drag', () => {
+    const { root, onCenterFrequencyPan } = renderWaterfall();
+    // Start clear of the line so this is a pan, then drag 100px left.
+    fireEvent.pointerDown(root, { ...touch, clientX: 800 });
+    fireEvent.pointerMove(root, { ...touch, clientX: 700 });
+    expect(onCenterFrequencyPan).toHaveBeenCalledWith(100e6 + 200e3);
+  });
+
+  it('drags the tuning line when the finger starts on it', () => {
+    const { root, onTuningOffsetChange } = renderWaterfall();
+    fireEvent.pointerDown(root, { ...touch, clientX: CURSOR_X });
+    fireEvent.pointerMove(root, { ...touch, clientX: CURSOR_X + 50 });
+    expect(onTuningOffsetChange).toHaveBeenCalledWith(100e3);
+  });
+
+  it('reveals the overlay under a finger', () => {
+    const { root, cursor, band } = renderWaterfall();
+    fireEvent.pointerDown(root, { ...touch, clientX: CURSOR_X });
+    expect(isVisible(cursor)).toBe(true);
+    expect(isVisible(band)).toBe(true);
   });
 });

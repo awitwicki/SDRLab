@@ -213,16 +213,21 @@ export default function WaterfallView({
     return dx < CURSOR_HIT || dx <= ((bwPct / 100) * rect.width) / 2;
   }, [cursorPct, bwPct]);
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
     if (isNearCursor(e.clientX)) {
       dragRef.current = { type: 'cursor', startX: e.clientX, startVal: tuningOffset };
     } else {
       dragRef.current = { type: 'pan', startX: e.clientX, startVal: frequency };
     }
+    // A finger has no hover, so contact is the only chance to reveal the
+    // overlay before the drag starts.
+    setOverlayVisible(isInCursorZone(e.clientX));
+    // Keep receiving moves once the finger slides outside the element.
+    e.currentTarget.setPointerCapture(e.pointerId);
     e.preventDefault();
-  }, [isNearCursor, tuningOffset, frequency]);
+  }, [isNearCursor, isInCursorZone, tuningOffset, frequency]);
 
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!dragRef.current || !containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
     const deltaX = e.clientX - dragRef.current.startX;
@@ -239,7 +244,7 @@ export default function WaterfallView({
     else el.style.cursor = 'col-resize';
   }, [sampleRate, onTuningOffsetChange, onCenterFrequencyPan]);
 
-  const handleMouseUp = useCallback((e: React.MouseEvent) => {
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
     if (dragRef.current) {
       const dx = Math.abs(e.clientX - dragRef.current.startX);
       const wasCursor = dragRef.current.type === 'cursor';
@@ -250,6 +255,7 @@ export default function WaterfallView({
         onTuningOffsetChange((x - 0.5) * sampleRate);
       }
       dragRef.current = null;
+      // Capture is released implicitly on pointerup; no need to do it here.
       (e.currentTarget as HTMLDivElement).style.cursor = 'crosshair';
       // After a tune or a cursor drag the line has followed the pointer, so
       // it's under it by definition; a pan leaves cursorPct untouched and can
@@ -258,12 +264,12 @@ export default function WaterfallView({
     }
   }, [sampleRate, onTuningOffsetChange, isInCursorZone]);
 
-  const handleMouseLeave = useCallback(() => {
+  const handlePointerLeave = useCallback(() => {
     dragRef.current = null;
     setOverlayVisible(false);
   }, []);
 
-  const handleCursorStyle = useCallback((e: React.MouseEvent) => {
+  const handleCursorStyle = useCallback((e: React.PointerEvent) => {
     if (dragRef.current) return;
     (e.currentTarget as HTMLDivElement).style.cursor = isNearCursor(e.clientX) ? 'col-resize' : 'grab';
   }, [isNearCursor]);
@@ -272,15 +278,15 @@ export default function WaterfallView({
     <div
       ref={containerRef}
       className={styles.container}
-      onMouseDown={handleMouseDown}
-      onMouseMove={e => {
+      onPointerDown={handlePointerDown}
+      onPointerMove={e => {
         const draggingCursor = dragRef.current?.type === 'cursor';
-        handleMouseMove(e);
+        handlePointerMove(e);
         if (!dragRef.current) handleCursorStyle(e);
         setOverlayVisible(draggingCursor || isInCursorZone(e.clientX));
       }}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseLeave}
+      onPointerUp={handlePointerUp}
+      onPointerLeave={handlePointerLeave}
     >
       <canvas ref={canvasRef} className={styles.canvas} />
       <div

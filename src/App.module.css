@@ -69,3 +69,57 @@
   grid-column: 1;
   grid-row: 3;
 }
+
+/* Narrow screens (phones in portrait, and cramped desktop windows): the side
+   panel has nowhere to go, so everything stacks in one scrolling column.
+   Width rather than orientation, since a phone in landscape is just as tight. */
+@media (max-width: 640px) {
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto auto;
+    height: auto;
+    /* dvh, so mobile browser chrome doesn't crop the plots. */
+    min-height: 100dvh;
+    overflow-y: auto;
+  }
+
+  .topBar {
+    grid-column: 1;
+    grid-row: 1;
+    height: auto;
+  }
+
+  .main {
+    grid-row: 2;
+    /* Keep the plots a usable size; the panel scrolls up from underneath.
+       min-height keeps them legible on a short landscape phone. */
+    height: 55dvh;
+    min-height: 260px;
+  }
+
+  /* Share the shortened area instead of the dragged pixel height, which can
+     exceed it outright and leave the waterfall clipped to nothing. */
+  .spectrum {
+    flex: 1 1 0;
+    min-height: 0;
+  }
+
+  .panel,
+  .panelCollapsed {
+    grid-column: 1;
+    grid-row: 3;
+    border-left: none;
+    border-top: 1px solid var(--border);
+  }
+
+  .statusBar {
+    grid-row: 4;
+  }
+
+  /* The spectrum/waterfall split is dragged with a pointer; on a phone the
+     handle is both hard to hit and easy to trigger while scrolling. */
+  .freqAxis[data-resizable="true"] {
+    cursor: default;
+    touch-action: auto;
+  }
+}

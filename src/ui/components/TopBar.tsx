@@ -17,6 +17,10 @@ interface TopBarProps {
   onDemodModeChange: (mode: DemodMode) => void;
   onSampleRateChange: (hz: number) => void;
   rdsPs?: string;
+  isFullscreen: boolean;
+  /** False where the browser has no Fullscreen API, e.g. Safari on iPhone. */
+  fullscreenSupported: boolean;
+  onFullscreenToggle: () => void;
 }
 
 function parseFrequency(input: string): number | null {
@@ -123,6 +127,7 @@ function TopBar({
   connected, running, frequency, tuningOffset, sampleRate, demodMode,
   onConnect, onDisconnect, onStart, onStop,
   onFrequencyChange, onDemodModeChange, onSampleRateChange, rdsPs,
+  isFullscreen, fullscreenSupported, onFullscreenToggle,
 }: Readonly<TopBarProps>) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
@@ -218,6 +223,24 @@ function TopBar({
         <span className={styles.statusDot} data-connected={connected} />
         <span>{connected ? 'Connected' : 'No device'}</span>
       </div>
+
+      {fullscreenSupported && (
+        <button
+          type="button"
+          className={styles.iconBtn}
+          onClick={onFullscreenToggle}
+          title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+          aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+        >
+          <svg
+            width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"
+            stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"
+          >
+            {/* Corners point outward to expand, inward to restore. */}
+            <path d={isFullscreen ? 'M6 2v4H2M10 2v4h4M6 14v-4H2M10 14v-4h4' : 'M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4'} />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }

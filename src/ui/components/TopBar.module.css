@@ -9,6 +9,38 @@
   user-select: none;
 }
 
+.iconBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 32px keeps it inside the 42px bar while staying a comfortable tap target. */
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  padding: 0;
+  border-radius: var(--radius);
+  color: var(--text-muted);
+}
+
+.iconBtn:hover {
+  color: var(--accent);
+}
+
+/* The bar overflows a phone's width in one line, so let it wrap onto two and
+   grow, and drop the spacer that would otherwise push a lone item across. */
+@media (max-width: 640px) {
+  .topBar {
+    flex-wrap: wrap;
+    height: auto;
+    gap: 8px;
+    padding: 6px 10px;
+  }
+
+  .spacer {
+    display: none;
+  }
+}
+
 .connectBtn {
   padding: 4px 14px;
   font-weight: 600;
