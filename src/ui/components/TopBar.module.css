@@ -190,4 +190,11 @@
   font-size: 13px;
   margin-left: 8px;
   white-space: pre;
+  /* A Program Service name is 8 characters, but it arrives off-air and may be
+     garbage before the decoder settles; cap it so it can never widen the bar. */
+  max-width: 10ch;
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

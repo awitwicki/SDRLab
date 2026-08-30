@@ -9,6 +9,8 @@
 .topBar {
   grid-column: 1 / -1;
   grid-row: 1;
+  /* Spans both columns, so its own content can widen the whole grid too. */
+  min-width: 0;
 }
 
 .main {
@@ -18,6 +20,10 @@
   flex-direction: column;
   overflow: hidden;
   position: relative;
+  /* The 1fr track is minmax(auto, 1fr), so without this it can never shrink
+     below its content's min-content width and wide content (decoded RDS in the
+     status bar) pushes the side panel off the screen edge. */
+  min-width: 0;
 }
 
 .spectrum {
@@ -68,6 +74,8 @@
 .statusBar {
   grid-column: 1;
   grid-row: 3;
+  /* Same reason as .main: let the track shrink instead of widening the grid. */
+  min-width: 0;
 }
 
 /* Narrow screens (phones in portrait, and cramped desktop windows): the side

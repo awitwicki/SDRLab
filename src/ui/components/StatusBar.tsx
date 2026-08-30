@@ -44,9 +44,9 @@ function StatusBar({ sampleRate, frequency, tuningOffset, bufferLevel, bufferSiz
         <span>{(usbRate / 1024).toFixed(0)} KB/s</span>
       </div>
       {rdsText && (
-        <div className={styles.item}>
+        <div className={`${styles.item} ${styles.rdsItem}`}>
           <span className={styles.itemLabel}>RDS:</span>
-          <span className={styles.rdsText}>{rdsText}</span>
+          <span className={styles.rdsText} title={rdsText}>{rdsText}</span>
         </div>
       )}
     </div>
