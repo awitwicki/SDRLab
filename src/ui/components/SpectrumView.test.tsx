@@ -19,6 +19,9 @@ function renderSpectrum() {
       channelBandwidth={200e3}
       displayOffset={0}
       fftSmoothing={0}
+      viewport={{ zoom: 1, centerOffset: 0 }}
+      onZoomAt={vi.fn()}
+      onViewPan={vi.fn()}
       onTuningOffsetChange={onTuningOffsetChange}
       onCenterFrequencyPan={onCenterFrequencyPan}
     />,
@@ -71,5 +74,55 @@ describe('SpectrumView touch input', () => {
     fireEvent.pointerMove(root, { ...touch, clientX: 700 });
     fireEvent.pointerUp(root, { ...touch, clientX: 700 });
     expect(onTuningOffsetChange).not.toHaveBeenCalled();
+  });
+});
+
+describe('SpectrumView when zoomed', () => {
+  function renderZoomed() {
+    const onTuningOffsetChange = vi.fn();
+    const onCenterFrequencyPan = vi.fn();
+    const onViewPan = vi.fn();
+    const onZoomAt = vi.fn();
+    const { container } = render(
+      <SpectrumView
+        fftData={null}
+        frequency={100e6}
+        sampleRate={2e6}
+        tuningOffset={0}
+        channelBandwidth={200e3}
+        displayOffset={0}
+        fftSmoothing={0}
+        viewport={{ zoom: 4, centerOffset: 0 }}
+        onZoomAt={onZoomAt}
+        onViewPan={onViewPan}
+        onTuningOffsetChange={onTuningOffsetChange}
+        onCenterFrequencyPan={onCenterFrequencyPan}
+      />,
+    );
+    return {
+      root: container.firstElementChild as HTMLElement,
+      onTuningOffsetChange, onCenterFrequencyPan, onViewPan, onZoomAt,
+    };
+  }
+
+  it('tunes within the visible window', () => {
+    const { root, onTuningOffsetChange } = renderZoomed();
+    fireEvent.pointerDown(root, { clientX: 750 });
+    fireEvent.pointerUp(root, { clientX: 750 });
+    expect(onTuningOffsetChange).toHaveBeenCalledWith(125e3);
+  });
+
+  it('slides the view rather than retuning', () => {
+    const { root, onViewPan, onCenterFrequencyPan } = renderZoomed();
+    fireEvent.pointerDown(root, { clientX: 800 });
+    fireEvent.pointerMove(root, { clientX: 700 });
+    expect(onViewPan).toHaveBeenCalledWith(50e3);
+    expect(onCenterFrequencyPan).not.toHaveBeenCalled();
+  });
+
+  it('zooms on the wheel', () => {
+    const { root, onZoomAt } = renderZoomed();
+    fireEvent.wheel(root, { deltaY: -100, clientX: 500 });
+    expect(onZoomAt).toHaveBeenCalledWith(expect.any(Number), 0.5);
   });
 });

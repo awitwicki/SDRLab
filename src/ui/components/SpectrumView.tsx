@@ -1,5 +1,7 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
 import styles from './SpectrumView.module.css';
+import { fractionToOffsetHz, offsetHzToFraction, viewportFractions, visibleSpan, type ViewportState } from '../viewport';
+import useZoomGestures from '../hooks/useZoomGestures';
 import { chooseTickStep } from './FrequencyAxis';
 
 interface SpectrumViewProps {
@@ -10,8 +12,11 @@ interface SpectrumViewProps {
   channelBandwidth: number;
   displayOffset: number;
   fftSmoothing: number;
+  viewport: ViewportState;
   onTuningOffsetChange: (offset: number) => void;
   onCenterFrequencyPan: (hz: number) => void;
+  onZoomAt: (factor: number, anchorFraction: number) => void;
+  onViewPan: (centerOffsetHz: number) => void;
 }
 
 const MIN_DB = -80;
@@ -21,10 +26,12 @@ const VERT_SHADER = `
   attribute float a_bin;
   attribute float a_power;
   uniform float u_numBins;
+  uniform float u_binStart;
+  uniform float u_binSpan;
   uniform float u_minDb;
   uniform float u_maxDb;
   void main() {
-    float x = (a_bin / u_numBins) * 2.0 - 1.0;
+    float x = ((a_bin - u_binStart) / u_binSpan) * 2.0 - 1.0;
     float y = ((a_power - u_minDb) / (u_maxDb - u_minDb)) * 2.0 - 1.0;
     y = clamp(y, -1.0, 1.0);
     gl_Position = vec4(x, y, 0.0, 1.0);
@@ -72,8 +79,8 @@ function createProgram(gl: WebGLRenderingContext, vertSrc: string, fragSrc: stri
 }
 
 export default function SpectrumView({
-  fftData, frequency, sampleRate, tuningOffset, channelBandwidth, displayOffset, fftSmoothing,
-  onTuningOffsetChange, onCenterFrequencyPan,
+  fftData, frequency, sampleRate, tuningOffset, channelBandwidth, displayOffset, fftSmoothing, viewport,
+  onTuningOffsetChange, onCenterFrequencyPan, onZoomAt, onViewPan,
 }: SpectrumViewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -89,9 +96,13 @@ export default function SpectrumView({
   const [mouseFreq, setMouseFreq] = useState<{ freq: number; power: number } | null>(null);
   const smoothBufRef = useRef<Float32Array | null>(null);
   const binCountRef = useRef(0);
-  const dragRef = useRef<{ type: 'cursor' | 'pan'; startX: number; startFreq: number } | null>(null);
+  const dragRef = useRef<{ type: 'cursor' | 'pan' | 'view'; startX: number; startFreq: number } | null>(null);
   const fpsLabelRef = useRef<HTMLDivElement>(null);
   const fpsCountRef = useRef({ count: 0, lastTime: performance.now() });
+
+  // The visible window; at 1x these describe the whole captured span.
+  const span = visibleSpan(viewport, sampleRate);
+  const view = viewportFractions(viewport, sampleRate);
 
   // Init WebGL
   useEffect(() => {
@@ -193,10 +204,10 @@ export default function SpectrumView({
       gridVerts.push(-1, y, 1, y);
     }
     // Vertical lines at the same frequencies FrequencyAxis labels
-    const step = chooseTickStep(sampleRate);
-    const lowFreq = frequency - sampleRate / 2;
-    for (let f = Math.ceil(lowFreq / step) * step; f <= frequency + sampleRate / 2; f += step) {
-      const x = ((f - lowFreq) / sampleRate) * 2 - 1;
+    const step = chooseTickStep(span);
+    const lowFreq = frequency + viewport.centerOffset - span / 2;
+    for (let f = Math.ceil(lowFreq / step) * step; f <= lowFreq + span; f += step) {
+      const x = ((f - lowFreq) / span) * 2 - 1;
       gridVerts.push(x, -1, x, 1);
     }
 
@@ -229,26 +240,35 @@ export default function SpectrumView({
     gl.vertexAttribPointer(specPowerLoc, 1, gl.FLOAT, false, 0, 0);
 
     gl.uniform1f(gl.getUniformLocation(specProgram, 'u_numBins')!, numBins);
+    gl.uniform1f(gl.getUniformLocation(specProgram, 'u_binStart')!, view.startFraction * numBins);
+    gl.uniform1f(gl.getUniformLocation(specProgram, 'u_binSpan')!, view.spanFraction * numBins);
     gl.uniform1f(gl.getUniformLocation(specProgram, 'u_minDb')!, MIN_DB + displayOffset);
     gl.uniform1f(gl.getUniformLocation(specProgram, 'u_maxDb')!, MAX_DB + displayOffset);
     gl.uniform4f(gl.getUniformLocation(specProgram, 'u_color')!, 0.0, 0.83, 1.0, 1.0);
     gl.drawArrays(gl.LINE_STRIP, 0, numBins);
 
     gl.disable(gl.BLEND);
-  }, [fftData, fftSmoothing, displayOffset, frequency, sampleRate]);
+  }, [fftData, fftSmoothing, displayOffset, frequency, sampleRate, viewport, span, view]);
 
   // Offset to percentage
-  const cursorPct = 50 + (tuningOffset / sampleRate) * 100;
+  const cursorPct = offsetHzToFraction(viewport, tuningOffset, sampleRate) * 100;
   const bw = channelBandwidth;
-  const bwPct = (bw / sampleRate) * 100;
+  const bwPct = (bw / span) * 100;
 
   const CURSOR_HIT = 10; // px hit area for cursor drag
+
+  const xToFraction = useCallback((clientX: number) => {
+    const rect = containerRef.current!.getBoundingClientRect();
+    return (clientX - rect.left) / rect.width;
+  }, []);
+
+  const gestures = useZoomGestures(xToFraction, onZoomAt);
 
   const xToOffset = useCallback((clientX: number) => {
     const rect = containerRef.current!.getBoundingClientRect();
     const x = (clientX - rect.left) / rect.width;
-    return (x - 0.5) * sampleRate;
-  }, [sampleRate]);
+    return fractionToOffsetHz(viewport, x, sampleRate);
+  }, [viewport, sampleRate]);
 
   const isNearCursor = useCallback((clientX: number) => {
     const rect = containerRef.current!.getBoundingClientRect();
@@ -260,19 +280,22 @@ export default function SpectrumView({
     if (isNearCursor(e.clientX)) {
       dragRef.current = { type: 'cursor', startX: e.clientX, startFreq: tuningOffset };
     } else {
-      dragRef.current = { type: 'pan', startX: e.clientX, startFreq: frequency };
+      // Zoomed in the drag slides the view; at 1x it retunes as before.
+      dragRef.current = viewport.zoom > 1
+        ? { type: 'view', startX: e.clientX, startFreq: viewport.centerOffset }
+        : { type: 'pan', startX: e.clientX, startFreq: frequency };
     }
     // Keep receiving moves once the finger slides outside the element.
     e.currentTarget.setPointerCapture(e.pointerId);
     e.preventDefault();
-  }, [isNearCursor, tuningOffset, frequency]);
+  }, [isNearCursor, tuningOffset, frequency, viewport]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     // Update readout
     if (smoothBufRef.current && containerRef.current) {
       const rect = containerRef.current.getBoundingClientRect();
       const x = (e.clientX - rect.left) / rect.width;
-      const freq = frequency + (x - 0.5) * sampleRate;
+      const freq = frequency + fractionToOffsetHz(viewport, x, sampleRate);
       const buf = smoothBufRef.current;
       const binIdx = Math.round(x * buf.length);
       const power = binIdx >= 0 && binIdx < buf.length ? buf[binIdx]! : MIN_DB;
@@ -283,17 +306,19 @@ export default function SpectrumView({
     if (!dragRef.current || !containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
     const deltaX = e.clientX - dragRef.current.startX;
-    const deltaFreq = (deltaX / rect.width) * sampleRate;
+    const deltaFreq = (deltaX / rect.width) * span;
 
     if (dragRef.current.type === 'cursor') {
       onTuningOffsetChange(dragRef.current.startFreq + deltaFreq);
     } else {
       const dx = Math.abs(e.clientX - dragRef.current.startX);
       if (dx > 3) {
-        onCenterFrequencyPan(dragRef.current.startFreq - deltaFreq);
+        const target = dragRef.current.startFreq - deltaFreq;
+        if (dragRef.current.type === 'view') onViewPan(target);
+        else onCenterFrequencyPan(target);
       }
     }
-  }, [fftData, frequency, sampleRate, onTuningOffsetChange, onCenterFrequencyPan]);
+  }, [fftData, frequency, sampleRate, span, viewport, onTuningOffsetChange, onCenterFrequencyPan, onViewPan]);
 
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
     if (dragRef.current) {
@@ -322,10 +347,16 @@ export default function SpectrumView({
     <div
       ref={containerRef}
       className={styles.container}
-      onPointerDown={handlePointerDown}
-      onPointerMove={e => { handlePointerMove(e); (e.currentTarget as HTMLDivElement).style.cursor = getCursor(e); }}
-      onPointerUp={handlePointerUp}
+      onPointerDown={e => { gestures.pointerDown(e); handlePointerDown(e); }}
+      onPointerMove={e => {
+        gestures.pointerMove(e);
+        if (gestures.pinching) { dragRef.current = null; return; }
+        handlePointerMove(e);
+        (e.currentTarget as HTMLDivElement).style.cursor = getCursor(e);
+      }}
+      onPointerUp={e => { gestures.pointerUp(e); handlePointerUp(e); }}
       onPointerLeave={handlePointerLeave}
+      onWheel={e => gestures.wheel(e)}
     >
       <canvas ref={canvasRef} className={styles.canvas} />
 

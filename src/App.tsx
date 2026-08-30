@@ -5,6 +5,7 @@ import { useDSP } from './ui/hooks/useDSP';
 import { useAudio } from './ui/hooks/useAudio';
 import useMediaQuery from './ui/hooks/useMediaQuery';
 import useFullscreen from './ui/hooks/useFullscreen';
+import useViewport from './ui/hooks/useViewport';
 import TopBar from './ui/components/TopBar';
 import SpectrumView from './ui/components/SpectrumView';
 import WaterfallView from './ui/components/WaterfallView';
@@ -259,6 +260,9 @@ export default function App() {
   // to the side, so it is always shown and cannot be collapsed away.
   const isNarrow = useMediaQuery('(max-width: 640px)');
   const fullscreen = useFullscreen();
+  const viewport = useViewport(sampleRate);
+  const handleZoomIn = useCallback(() => viewport.zoomAt(2, 0.5), [viewport]);
+  const handleZoomOut = useCallback(() => viewport.zoomAt(0.5, 0.5), [viewport]);
   const handleOokToggle = useCallback(() => setOokEnabled(false), []);
   const handleOokChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => setOokEnabled(e.target.checked), []);
 
@@ -302,6 +306,10 @@ export default function App() {
           onDemodModeChange={handleDemodModeChange}
           onSampleRateChange={handleSampleRateChange}
           rdsPs={dsp.rdsData?.ps}
+          zoom={viewport.zoom}
+          onZoomIn={handleZoomIn}
+          onZoomOut={handleZoomOut}
+          onZoomReset={viewport.reset}
           isFullscreen={fullscreen.isFullscreen}
           fullscreenSupported={fullscreen.supported}
           onFullscreenToggle={fullscreen.toggle}
@@ -323,8 +331,11 @@ export default function App() {
             channelBandwidth={channelBandwidth}
             displayOffset={displayOffset}
             fftSmoothing={fftSmoothing}
+            viewport={viewport}
             onTuningOffsetChange={handleTuningOffsetChange}
             onCenterFrequencyPan={handleCenterFrequencyPan}
+            onZoomAt={viewport.zoomAt}
+            onViewPan={viewport.panTo}
           />
         </div>
         <div
@@ -336,8 +347,8 @@ export default function App() {
           onPointerCancel={handleSplitUp}
         >
           <FrequencyAxis
-            centerFrequency={frequency}
-            sampleRate={sampleRate}
+            centerFrequency={frequency + viewport.centerOffset}
+            visibleSpan={viewport.visibleSpan}
           />
         </div>
         {waterfallEnabled && (
@@ -351,8 +362,13 @@ export default function App() {
               channelBandwidth={channelBandwidth}
               displayOffset={displayOffset}
               waterfallSpeed={waterfallSpeed}
+              viewport={viewport}
+              startFraction={viewport.startFraction}
+              spanFraction={viewport.spanFraction}
               onTuningOffsetChange={handleTuningOffsetChange}
               onCenterFrequencyPan={handleCenterFrequencyPan}
+              onZoomAt={viewport.zoomAt}
+              onViewPan={viewport.panTo}
             />
           </div>
         )}

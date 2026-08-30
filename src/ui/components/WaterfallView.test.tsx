@@ -21,6 +21,11 @@ function renderWaterfall(overrides: Partial<React.ComponentProps<typeof Waterfal
       channelBandwidth={200e3}
       waterfallSpeed={1}
       displayOffset={0}
+      viewport={{ zoom: 1, centerOffset: 0 }}
+      startFraction={0}
+      spanFraction={1}
+      onZoomAt={vi.fn()}
+      onViewPan={vi.fn()}
       onTuningOffsetChange={onTuningOffsetChange}
       onCenterFrequencyPan={onCenterFrequencyPan}
       {...overrides}
@@ -143,5 +148,78 @@ describe('WaterfallView touch input', () => {
     fireEvent.pointerDown(root, { ...touch, clientX: CURSOR_X });
     expect(isVisible(cursor)).toBe(true);
     expect(isVisible(band)).toBe(true);
+  });
+});
+
+// At 4x the view is 500 kHz wide centred on the tuned frequency, so it spans
+// -250 kHz..+250 kHz of the hardware centre.
+const zoomed4x = { viewport: { zoom: 4, centerOffset: 0 } };
+
+describe('WaterfallView when zoomed', () => {
+  it('tunes within the visible window, not the whole span', () => {
+    const { root, onTuningOffsetChange } = renderWaterfall(zoomed4x);
+    // 0.75 across a 500 kHz window starting at -250 kHz is +125 kHz.
+    fireEvent.pointerDown(root, { clientX: 750 });
+    fireEvent.pointerUp(root, { clientX: 750 });
+    expect(onTuningOffsetChange).toHaveBeenCalledWith(125e3);
+  });
+
+  it('slides the view instead of retuning the hardware', () => {
+    const onViewPan = vi.fn();
+    const { root, onCenterFrequencyPan } = renderWaterfall({ ...zoomed4x, onViewPan });
+    fireEvent.pointerDown(root, { clientX: 800 });
+    fireEvent.pointerMove(root, { clientX: 700 });
+    // 100px of a 1000px-wide 500 kHz window is 50 kHz.
+    expect(onViewPan).toHaveBeenCalledWith(50e3);
+    expect(onCenterFrequencyPan).not.toHaveBeenCalled();
+  });
+
+  it('still retunes the hardware at 1x, where there is nowhere to slide', () => {
+    const onViewPan = vi.fn();
+    const { root, onCenterFrequencyPan } = renderWaterfall({ onViewPan });
+    fireEvent.pointerDown(root, { clientX: 800 });
+    fireEvent.pointerMove(root, { clientX: 700 });
+    expect(onCenterFrequencyPan).toHaveBeenCalled();
+    expect(onViewPan).not.toHaveBeenCalled();
+  });
+
+  it('places the tuning line by the visible window', () => {
+    // Tuned +125 kHz sits three quarters across a -250..+250 kHz window.
+    const { cursor } = renderWaterfall({ ...zoomed4x, tuningOffset: 125e3 });
+    expect(cursor.style.left).toBe('75%');
+  });
+
+  it('widens the channel band as the window narrows', () => {
+    // 200 kHz of a 500 kHz window is 40%, against 10% of the full span.
+    const { band } = renderWaterfall(zoomed4x);
+    expect(band.style.width).toBe('40%');
+  });
+});
+
+describe('WaterfallView zoom gestures', () => {
+  it('zooms on the wheel, anchored at the cursor', () => {
+    const onZoomAt = vi.fn();
+    const { root } = renderWaterfall({ onZoomAt });
+    fireEvent.wheel(root, { deltaY: -100, clientX: 250 });
+    expect(onZoomAt).toHaveBeenCalledWith(expect.any(Number), 0.25);
+    expect(onZoomAt.mock.calls[0]![0]).toBeGreaterThan(1);
+  });
+
+  it('zooms on a two-finger pinch', () => {
+    const onZoomAt = vi.fn();
+    const { root } = renderWaterfall({ onZoomAt });
+    fireEvent.pointerDown(root, { pointerId: 1, clientX: 400 });
+    fireEvent.pointerDown(root, { pointerId: 2, clientX: 600 });
+    fireEvent.pointerMove(root, { pointerId: 2, clientX: 800 });
+    expect(onZoomAt).toHaveBeenCalledWith(2, expect.any(Number));
+  });
+
+  it('does not retune while pinching', () => {
+    const { root, onCenterFrequencyPan, onTuningOffsetChange } = renderWaterfall({ onZoomAt: vi.fn() });
+    fireEvent.pointerDown(root, { pointerId: 1, clientX: 400 });
+    fireEvent.pointerDown(root, { pointerId: 2, clientX: 600 });
+    fireEvent.pointerMove(root, { pointerId: 2, clientX: 800 });
+    expect(onCenterFrequencyPan).not.toHaveBeenCalled();
+    expect(onTuningOffsetChange).not.toHaveBeenCalled();
   });
 });

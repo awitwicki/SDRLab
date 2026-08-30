@@ -2,8 +2,10 @@ import { useMemo, memo } from 'react';
 import styles from './FrequencyAxis.module.css';
 
 interface FrequencyAxisProps {
+  /** Centre of the *visible* window, which zoom moves off the tuned centre. */
   centerFrequency: number;
-  sampleRate: number;
+  /** Width of the visible window in Hz; the full sample rate at 1x. */
+  visibleSpan: number;
 }
 
 export function chooseTickStep(visibleBandwidth: number): number {
@@ -24,21 +26,21 @@ function formatTickLabel(hz: number): string {
   return mhz.toFixed(2);
 }
 
-function FrequencyAxis({ centerFrequency, sampleRate }: FrequencyAxisProps) {
+function FrequencyAxis({ centerFrequency, visibleSpan }: FrequencyAxisProps) {
   const ticks = useMemo(() => {
-    const step = chooseTickStep(sampleRate);
-    const lowFreq = centerFrequency - sampleRate / 2;
-    const highFreq = centerFrequency + sampleRate / 2;
+    const step = chooseTickStep(visibleSpan);
+    const lowFreq = centerFrequency - visibleSpan / 2;
+    const highFreq = centerFrequency + visibleSpan / 2;
     const firstTick = Math.ceil(lowFreq / step) * step;
 
     const result: { freq: number; pct: number; isCenter: boolean }[] = [];
     for (let f = firstTick; f <= highFreq; f += step) {
-      const pct = ((f - lowFreq) / sampleRate) * 100;
+      const pct = ((f - lowFreq) / visibleSpan) * 100;
       const isCenter = Math.abs(f - centerFrequency) < step / 2;
       result.push({ freq: f, pct, isCenter });
     }
     return result;
-  }, [centerFrequency, sampleRate]);
+  }, [centerFrequency, visibleSpan]);
 
   return (
     <div className={styles.axis}>

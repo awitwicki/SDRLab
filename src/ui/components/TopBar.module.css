@@ -198,3 +198,30 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.zoomGroup {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.zoomLabel {
+  min-width: 34px;
+  height: 32px;
+  padding: 0 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  border-radius: var(--radius);
+  background: none;
+  border: none;
+}
+
+.zoomLabel:hover:not(:disabled) {
+  color: var(--accent);
+}
+
+.zoomGroup button:disabled {
+  opacity: 0.35;
+}

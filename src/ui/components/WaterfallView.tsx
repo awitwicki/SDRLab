@@ -1,5 +1,7 @@
 import { useRef, useEffect, useCallback, useState } from 'react';
 import type { ColorMap } from '../../devices/types';
+import { fractionToOffsetHz, offsetHzToFraction, visibleSpan, type ViewportState } from '../viewport';
+import useZoomGestures from '../hooks/useZoomGestures';
 import styles from './WaterfallView.module.css';
 
 interface WaterfallViewProps {
@@ -11,8 +13,13 @@ interface WaterfallViewProps {
   channelBandwidth: number;
   waterfallSpeed: number;
   displayOffset: number;
+  viewport: ViewportState;
+  startFraction: number;
+  spanFraction: number;
   onTuningOffsetChange: (offset: number) => void;
   onCenterFrequencyPan: (hz: number) => void;
+  onZoomAt: (factor: number, anchorFraction: number) => void;
+  onViewPan: (deltaHz: number) => void;
 }
 
 const VERT_SHADER = `
@@ -29,6 +36,8 @@ const FRAG_SHADER = `
   uniform sampler2D u_texture;
   uniform float u_scrollOffset;
   uniform int u_colorMap;
+  uniform float u_viewStart;
+  uniform float u_viewSpan;
   varying vec2 v_texCoord;
 
   vec3 thermal(float v) {
@@ -43,7 +52,10 @@ const FRAG_SHADER = `
 
   void main() {
     float y = fract(v_texCoord.y + u_scrollOffset);
-    float value = texture2D(u_texture, vec2(v_texCoord.x, y)).r;
+    // History is stored across the full captured span, so zooming is just a
+    // narrower read of the same texture -- old rows stay correct.
+    float x = u_viewStart + v_texCoord.x * u_viewSpan;
+    float value = texture2D(u_texture, vec2(x, y)).r;
     vec3 color;
     if (u_colorMap == 0) { color = thermal(value); }
     else if (u_colorMap == 1) { color = vec3(value); }
@@ -66,7 +78,8 @@ const COLOR_MAP_INDEX: Record<ColorMap, number> = { thermal: 0, grayscale: 1, gr
 
 export default function WaterfallView({
   fftData, frequency, sampleRate, colorMap, tuningOffset, channelBandwidth, waterfallSpeed, displayOffset,
-  onTuningOffsetChange, onCenterFrequencyPan,
+  viewport, startFraction, spanFraction,
+  onTuningOffsetChange, onCenterFrequencyPan, onZoomAt, onViewPan,
 }: WaterfallViewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -78,9 +91,11 @@ export default function WaterfallView({
     fftWidth: number;
     u_scrollOffset: WebGLUniformLocation;
     u_colorMap: WebGLUniformLocation;
+    u_viewStart: WebGLUniformLocation;
+    u_viewSpan: WebGLUniformLocation;
   } | null>(null);
 
-  const dragRef = useRef<{ type: 'cursor' | 'pan'; startX: number; startVal: number } | null>(null);
+  const dragRef = useRef<{ type: 'cursor' | 'pan' | 'view'; startX: number; startVal: number } | null>(null);
   const rowBufRef = useRef<Uint8Array | null>(null);
   // The tuning line and channel band live permanently on the spectrum; here
   // they only appear while the pointer is over them, so they don't draw
@@ -120,6 +135,8 @@ export default function WaterfallView({
       gl, program, texture, currentRow: 0, fftWidth,
       u_scrollOffset: gl.getUniformLocation(program, 'u_scrollOffset')!,
       u_colorMap: gl.getUniformLocation(program, 'u_colorMap')!,
+      u_viewStart: gl.getUniformLocation(program, 'u_viewStart')!,
+      u_viewSpan: gl.getUniformLocation(program, 'u_viewSpan')!,
     };
 
     const resize = () => {
@@ -182,8 +199,10 @@ export default function WaterfallView({
     gl.useProgram(program);
     gl.uniform1f(s.u_scrollOffset, s.currentRow / WATERFALL_ROWS);
     gl.uniform1i(s.u_colorMap, COLOR_MAP_INDEX[colorMap] ?? 0);
+    gl.uniform1f(s.u_viewStart, startFraction);
+    gl.uniform1f(s.u_viewSpan, spanFraction);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-  }, [fftData, colorMap, waterfallSpeed]);
+  }, [fftData, colorMap, waterfallSpeed, startFraction, spanFraction]);
 
   useEffect(() => {
     if (!stateRef.current) return;
@@ -193,9 +212,17 @@ export default function WaterfallView({
     s.gl.texImage2D(s.gl.TEXTURE_2D, 0, s.gl.LUMINANCE, s.fftWidth, WATERFALL_ROWS, 0, s.gl.LUMINANCE, s.gl.UNSIGNED_BYTE, new Uint8Array(s.fftWidth * WATERFALL_ROWS));
   }, [sampleRate]);
 
-  const cursorPct = 50 + (tuningOffset / sampleRate) * 100;
-  const bw = channelBandwidth;
-  const bwPct = (bw / sampleRate) * 100;
+  // All percentages are across the *visible* window, not the captured span.
+  const span = visibleSpan(viewport, sampleRate);
+  const cursorPct = offsetHzToFraction(viewport, tuningOffset, sampleRate) * 100;
+  const bwPct = (channelBandwidth / span) * 100;
+
+  const xToFraction = useCallback((clientX: number) => {
+    const rect = containerRef.current!.getBoundingClientRect();
+    return (clientX - rect.left) / rect.width;
+  }, []);
+
+  const gestures = useZoomGestures(xToFraction, onZoomAt);
 
   const isNearCursor = useCallback((clientX: number) => {
     const rect = containerRef.current!.getBoundingClientRect();
@@ -217,7 +244,11 @@ export default function WaterfallView({
     if (isNearCursor(e.clientX)) {
       dragRef.current = { type: 'cursor', startX: e.clientX, startVal: tuningOffset };
     } else {
-      dragRef.current = { type: 'pan', startX: e.clientX, startVal: frequency };
+      // Zoomed in, dragging slides the view within the captured span; at 1x
+      // there is nowhere to slide, so it retunes the hardware as before.
+      dragRef.current = viewport.zoom > 1
+        ? { type: 'view', startX: e.clientX, startVal: viewport.centerOffset }
+        : { type: 'pan', startX: e.clientX, startVal: frequency };
     }
     // A finger has no hover, so contact is the only chance to reveal the
     // overlay before the drag starts.
@@ -225,24 +256,25 @@ export default function WaterfallView({
     // Keep receiving moves once the finger slides outside the element.
     e.currentTarget.setPointerCapture(e.pointerId);
     e.preventDefault();
-  }, [isNearCursor, isInCursorZone, tuningOffset, frequency]);
+  }, [isNearCursor, isInCursorZone, tuningOffset, frequency, viewport]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!dragRef.current || !containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
     const deltaX = e.clientX - dragRef.current.startX;
-    const deltaFreq = (deltaX / rect.width) * sampleRate;
+    const deltaFreq = (deltaX / rect.width) * span;
 
     if (dragRef.current.type === 'cursor') {
       onTuningOffsetChange(dragRef.current.startVal + deltaFreq);
     } else if (Math.abs(deltaX) > 3) {
-      onCenterFrequencyPan(dragRef.current.startVal - deltaFreq);
+      if (dragRef.current.type === 'view') onViewPan(dragRef.current.startVal - deltaFreq);
+      else onCenterFrequencyPan(dragRef.current.startVal - deltaFreq);
     }
 
     const el = e.currentTarget as HTMLDivElement;
     if (dragRef.current.type === 'pan') el.style.cursor = 'grabbing';
     else el.style.cursor = 'col-resize';
-  }, [sampleRate, onTuningOffsetChange, onCenterFrequencyPan]);
+  }, [span, onTuningOffsetChange, onCenterFrequencyPan, onViewPan]);
 
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
     if (dragRef.current) {
@@ -250,9 +282,7 @@ export default function WaterfallView({
       const wasCursor = dragRef.current.type === 'cursor';
       const tuned = dx <= 3 && !wasCursor;
       if (tuned) {
-        const rect = containerRef.current!.getBoundingClientRect();
-        const x = (e.clientX - rect.left) / rect.width;
-        onTuningOffsetChange((x - 0.5) * sampleRate);
+        onTuningOffsetChange(fractionToOffsetHz(viewport, xToFraction(e.clientX), sampleRate));
       }
       dragRef.current = null;
       // Capture is released implicitly on pointerup; no need to do it here.
@@ -262,7 +292,7 @@ export default function WaterfallView({
       // be hit-tested directly.
       setOverlayVisible(wasCursor || tuned || isInCursorZone(e.clientX));
     }
-  }, [sampleRate, onTuningOffsetChange, isInCursorZone]);
+  }, [sampleRate, viewport, xToFraction, onTuningOffsetChange, isInCursorZone]);
 
   const handlePointerLeave = useCallback(() => {
     dragRef.current = null;
@@ -278,15 +308,20 @@ export default function WaterfallView({
     <div
       ref={containerRef}
       className={styles.container}
-      onPointerDown={handlePointerDown}
+      onPointerDown={e => { gestures.pointerDown(e); handlePointerDown(e); }}
       onPointerMove={e => {
+        gestures.pointerMove(e);
+        // A second finger turns the drag into a pinch; drop the drag so the
+        // view does not lurch while zooming.
+        if (gestures.pinching) { dragRef.current = null; return; }
         const draggingCursor = dragRef.current?.type === 'cursor';
         handlePointerMove(e);
         if (!dragRef.current) handleCursorStyle(e);
         setOverlayVisible(draggingCursor || isInCursorZone(e.clientX));
       }}
-      onPointerUp={handlePointerUp}
+      onPointerUp={e => { gestures.pointerUp(e); handlePointerUp(e); }}
       onPointerLeave={handlePointerLeave}
+      onWheel={e => gestures.wheel(e)}
     >
       <canvas ref={canvasRef} className={styles.canvas} />
       <div

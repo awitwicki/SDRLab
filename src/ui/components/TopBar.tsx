@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect, memo } from 'react';
 import type { DemodMode } from '../../devices/types';
 import styles from './TopBar.module.css';
+import { MAX_ZOOM } from '../viewport';
 
 interface TopBarProps {
   connected: boolean;
@@ -17,6 +18,10 @@ interface TopBarProps {
   onDemodModeChange: (mode: DemodMode) => void;
   onSampleRateChange: (hz: number) => void;
   rdsPs?: string;
+  zoom: number;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onZoomReset: () => void;
   isFullscreen: boolean;
   /** False where the browser has no Fullscreen API, e.g. Safari on iPhone. */
   fullscreenSupported: boolean;
@@ -127,6 +132,7 @@ function TopBar({
   connected, running, frequency, tuningOffset, sampleRate, demodMode,
   onConnect, onDisconnect, onStart, onStop,
   onFrequencyChange, onDemodModeChange, onSampleRateChange, rdsPs,
+  zoom, onZoomIn, onZoomOut, onZoomReset,
   isFullscreen, fullscreenSupported, onFullscreenToggle,
 }: Readonly<TopBarProps>) {
   const [editing, setEditing] = useState(false);
@@ -222,6 +228,21 @@ function TopBar({
       <div className={styles.status}>
         <span className={styles.statusDot} data-connected={connected} />
         <span>{connected ? 'Connected' : 'No device'}</span>
+      </div>
+
+      <div className={styles.zoomGroup}>
+        <button
+          type="button" className={styles.iconBtn} onClick={onZoomOut}
+          disabled={zoom <= 1} title="Zoom out" aria-label="Zoom out"
+        >&minus;</button>
+        <button
+          type="button" className={styles.zoomLabel} onClick={onZoomReset}
+          disabled={zoom <= 1} title="Reset zoom to the full span"
+        >{zoom < 2 ? '1x' : `${Math.round(zoom)}x`}</button>
+        <button
+          type="button" className={styles.iconBtn} onClick={onZoomIn}
+          disabled={zoom >= MAX_ZOOM} title="Zoom in" aria-label="Zoom in"
+        >+</button>
       </div>
 
       {fullscreenSupported && (
