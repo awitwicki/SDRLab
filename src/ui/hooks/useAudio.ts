@@ -9,6 +9,7 @@ interface UseAudioReturn {
   bufferLevel: number;
   bufferSize: number;
   init: () => Promise<void>;
+  resume: () => Promise<void>;
   setVolume: (v: number) => void;
   pushAudio: (samples: Float32Array, squelchOpen: boolean) => void;
   startRecording: () => void;
@@ -80,7 +81,13 @@ export function useAudio(): UseAudioReturn {
     engineRef.current?.flush();
   }, []);
 
+  // Called from user gestures: a context the browser suspended for lack of
+  // activation can only be revived from inside one.
+  const resume = useCallback(async () => {
+    await engineRef.current?.resume();
+  }, []);
+
   return useMemo(() => ({
-    initialized, volume, recording, bufferLevel, bufferSize, init, setVolume, pushAudio, startRecording, stopRecording, destroy, flush,
-  }), [initialized, volume, recording, bufferLevel, bufferSize, init, setVolume, pushAudio, startRecording, stopRecording, destroy, flush]);
+    initialized, volume, recording, bufferLevel, bufferSize, init, resume, setVolume, pushAudio, startRecording, stopRecording, destroy, flush,
+  }), [initialized, volume, recording, bufferLevel, bufferSize, init, resume, setVolume, pushAudio, startRecording, stopRecording, destroy, flush]);
 }

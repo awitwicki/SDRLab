@@ -1,4 +1,8 @@
 // src/audio/engine.ts
+// Bundled as a standalone ES module: a bare `new URL('./worklet.ts', ...)`
+// makes Vite inline the untranspiled TypeScript as a data: URL typed
+// video/mp2t, which addModule rejects, leaving production builds silent.
+import workletUrl from './worklet.ts?worker&url';
 export interface AudioEngineState {
   volume: number;
   bufferLevel: number;
@@ -18,7 +22,6 @@ export class AudioEngine {
   async init(): Promise<void> {
     this.ctx = new AudioContext({ sampleRate: 48000 });
 
-    const workletUrl = new URL('./worklet.ts', import.meta.url);
     await this.ctx.audioWorklet.addModule(workletUrl);
 
     this.workletNode = new AudioWorkletNode(this.ctx, 'sdr-worklet');
@@ -39,6 +42,13 @@ export class AudioEngine {
         this.onBufferUpdate?.(this._bufferLevel, this._bufferSize);
       }
     };
+
+    // Built outside a user gesture (device.connect() consumes the click's
+    // activation) the context arrives suspended and stays silent. Desktop
+    // Chrome usually waives this via its media engagement score; Android does
+    // not. Resuming here covers the case where activation is still valid --
+    // otherwise a later gesture has to call resume().
+    await this.resume();
   }
 
   pushAudio(samples: Float32Array, squelchOpen: boolean): void {
@@ -64,9 +74,18 @@ export class AudioEngine {
     this.onBufferUpdate = cb;
   }
 
+  /** True when the browser is holding the context silent, pending a gesture. */
+  get suspended(): boolean {
+    return this.ctx?.state === 'suspended';
+  }
+
   async resume(): Promise<void> {
-    if (this.ctx?.state === 'suspended') {
+    if (this.ctx?.state !== 'suspended') return;
+    try {
       await this.ctx.resume();
+    } catch {
+      // Rejected when there is no user activation to spend. Not fatal: the
+      // next gesture gets another attempt.
     }
   }
 

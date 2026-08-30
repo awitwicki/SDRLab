@@ -148,8 +148,11 @@ export default function App() {
 
   const handleConnect = useCallback(async () => {
     try {
-      await device.connect();
+      // Build the AudioContext first: device.connect() opens the WebUSB
+      // chooser, and by the time it resolves the click's user activation is
+      // spent, which makes Chrome on Android start the context suspended.
       if (audioEnabled) await audioRef.current.init();
+      await device.connect();
     } catch (err) {
       console.error('Connect failed:', err);
     }
@@ -163,6 +166,8 @@ export default function App() {
 
   const handleStart = useCallback(async () => {
     audioRef.current.flush();
+    // A fresh gesture, so a context suspended earlier can be revived here.
+    void audioRef.current.resume();
     try {
       await device.setFrequency(frequency);
       await device.setSampleRate(sampleRate);
